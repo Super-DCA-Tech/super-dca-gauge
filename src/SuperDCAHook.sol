@@ -13,7 +13,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 /**
  * @title SuperDCAHook
- * @notice A Uniswap V4 pool hook to distribute BRAVO tokens.
+ * @notice A Uniswap V4 pool hook to distribute SuperDCAToken tokens.
  *   – Before liquidity is added: resets the LP timelock, mints tokens, donates half to the pool,
  *     and transfers half to the developer.
  *   – Before liquidity is removed: if the LP is unlocked (timelock expired), the same distribution occurs.
@@ -39,14 +39,11 @@ contract SuperDCAHook is BaseHook {
      * @param _poolManager The Uniswap V4 pool manager.
      * @param _superDCAToken The deployed SuperDCAToken contract.
      * @param _developerAddress The address of the Developer.
-     * @param _mintRate The number of BRAVO tokens to mint per second.
+     * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
-    constructor(
-        IPoolManager _poolManager,
-        SuperDCAToken _superDCAToken,
-        address _developerAddress,
-        uint256 _mintRate
-    ) BaseHook(_poolManager) {
+    constructor(IPoolManager _poolManager, SuperDCAToken _superDCAToken, address _developerAddress, uint256 _mintRate)
+        BaseHook(_poolManager)
+    {
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
         mintRate = _mintRate;
