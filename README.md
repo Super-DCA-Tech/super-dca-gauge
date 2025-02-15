@@ -76,17 +76,17 @@ stateDiagram-v2
     
 
     %% ETH‑DCA Pool Flow
-    LP_ETH --> Pool_ETH: 1.mint()
+    LP_ETH --> Pool_ETH: 1.mint/burn()
     Pool_ETH --> Hook_ETH: 2.beforeAdd/RemoveLiquidity()
     Hook_ETH --> Token: 3.mint()
     Token --> Hook_ETH: 4.transfer()
     Hook_ETH --> Pool_ETH: 5.donate()
     Hook_ETH --> Developer: 6.transfer()
 ```
-> 1. The `Liquidity Provider` adds liquidity to the `ETH‑DCA Pool`
-> 2. The `ETH‑DCA Pool` calls the `SuperDCAHook` contract to distribute tokens to the `SuperDCAToken` contract.
-> 3. The `SuperDCAToken` contract mints tokens and transfers them to the `SuperDCAHook` contract.
-> 4. The `SuperDCAHook` contract donates tokens to the `ETH‑DCA Pool` and transfers the remaining tokens to the `Developer`.
+1. The `Liquidity Provider` adds/removes liquidity to the `ETH‑DCA Pool`
+2. The `ETH‑DCA Pool` calls the `SuperDCAHook` contract to distribute tokens to the `SuperDCAToken` contract.
+3. The `SuperDCAToken` contract mints tokens and transfers them to the `SuperDCAHook` contract.
+4. The `SuperDCAHook` contract donates tokens to the `ETH‑DCA Pool` and transfers the remaining tokens to the `Developer`.
 
 
 #### Distribution Logic
