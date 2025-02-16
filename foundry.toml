@@ -10,5 +10,5 @@
   extra_output = ["storageLayout"]
   ffi = true
 
-[etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
+[rpc_endpoints]
+sepolia-unichain = "https://sepolia.unichain.org/"

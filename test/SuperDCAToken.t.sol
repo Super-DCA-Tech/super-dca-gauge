@@ -20,6 +20,6 @@ contract SuperDCATest is Test {
     }
 
     function testName() public view {
-        assertEq(instance.name(), "Super DCA Token");
+        assertEq(instance.name(), "Super DCA");
     }
 }

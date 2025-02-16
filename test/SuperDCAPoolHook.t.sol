@@ -15,23 +15,27 @@ import {CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Test} from "forge-std/Test.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {MockERC20Token} from "./mocks/MockERC20Token.sol";
 
 contract SuperDCAHookTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
     SuperDCAHook hook;
-    SuperDCAToken token;
+    SuperDCAToken dcaToken;
     PoolId poolId;
     address developer = address(0xDEADBEEF);
     uint256 mintRate = 100; // SDCA tokens per second
+    MockERC20Token public weth;
 
     function setUp() public {
+        // Deploy mock WETH
+        weth = new MockERC20Token("Wrapped Ether", "WETH", 18);
+        
         // Deploy core Uniswap V4 contracts
         deployFreshManagerAndRouters();
-        deployMintAndApprove2Currencies();
-
-        // Deploy the token implementation
+        
+        // Deploy the DCA token implementation
         SuperDCAToken tokenImplementation = new SuperDCAToken();
 
         // Deploy proxy and initialize it
@@ -45,37 +49,52 @@ contract SuperDCAHookTest is Test, Deployers {
             )
         );
 
-        token = SuperDCAToken(
+        dcaToken = SuperDCAToken(
             address(new TransparentUpgradeableProxy(address(tokenImplementation), address(this), initData))
         );
 
         // Deploy the hook to an address with the correct flags
         address flags = address(
-            uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG) ^ (0x4242 << 144) // Namespace the hook to avoid collisions
+            uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG) ^ (0x4242 << 144)
         );
-        bytes memory constructorArgs = abi.encode(manager, token, developer, mintRate);
+        bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate);
         deployCodeTo("SuperDCAHook.sol:SuperDCAHook", constructorArgs, flags);
         hook = SuperDCAHook(flags);
 
-        // Grant minter role to the hook address
+        // Grant minter role to the hook
         bytes32 MINTER_ROLE = keccak256("MINTER_ROLE");
-        token.grantRole(MINTER_ROLE, address(hook));
+        dcaToken.grantRole(MINTER_ROLE, address(hook));
 
-        // Create the pool using the key from Deployers
-        key = PoolKey({
-            currency0: currency0,
-            currency1: Currency.wrap(address(token)),
-            fee: 3000,
-            tickSpacing: 60,
-            hooks: IHooks(hook)
-        });
+        // Mint tokens for testing
+        weth.mint(address(this), 1000e18);
+        dcaToken.mint(address(this), 1000e18);
+
+        // Create the pool using tokens in ascending order
+        if (address(weth) < address(dcaToken)) {
+            key = PoolKey({
+                currency0: Currency.wrap(address(weth)),
+                currency1: Currency.wrap(address(dcaToken)),
+                fee: 3000,
+                tickSpacing: 60,
+                hooks: IHooks(hook)
+            });
+        } else {
+            key = PoolKey({
+                currency0: Currency.wrap(address(dcaToken)),
+                currency1: Currency.wrap(address(weth)),
+                fee: 3000,
+                tickSpacing: 60,
+                hooks: IHooks(hook)
+            });
+        }
 
         // Initialize the pool
         poolId = key.toId();
         manager.initialize(key, SQRT_PRICE_1_1);
-
+        
         // Approve tokens for liquidity addition
-        token.approve(address(modifyLiquidityRouter), type(uint256).max);
+        weth.approve(address(modifyLiquidityRouter), type(uint256).max);
+        dcaToken.approve(address(modifyLiquidityRouter), type(uint256).max);
     }
 
     function test_distribution_on_addLiquidity() public {
@@ -108,7 +127,7 @@ contract SuperDCAHookTest is Test, Deployers {
         }
 
         // Verify distributions
-        assertEq(token.balanceOf(developer), developerShare, "Developer should receive correct share");
+        assertEq(dcaToken.balanceOf(developer), developerShare, "Developer should receive correct share");
         assertEq(hook.lastMinted(), startTime + elapsed, "Last minted timestamp should be updated");
 
         // Verify the donation by checking that there are fees for the pool
@@ -151,7 +170,7 @@ contract SuperDCAHookTest is Test, Deployers {
 
         // Verify distributions:
         // Developer should receive their share while the pool (via manager) gets the community share.
-        assertEq(token.balanceOf(developer), developerShare, "Developer should receive correct share");
+        assertEq(dcaToken.balanceOf(developer), developerShare, "Developer should receive correct share");
         assertEq(hook.lastMinted(), startTime + elapsed, "Last minted timestamp should be updated");
 
         // Verify the donation by checking that there are fees for the pool
