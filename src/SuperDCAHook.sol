@@ -104,7 +104,7 @@ contract SuperDCAHook is BaseHook {
     /**
      * @notice Internal function to calculate and distribute tokens.
      */
-    function _mintTokens(PoolKey calldata key, bytes calldata hookData) internal returns (uint256) {
+    function _getRewardTokens(PoolKey calldata key) internal returns (uint256) {
         // Validate pool has SuperDCAToken and correct fee
         if (key.fee != POOL_FEE || (
             address(superDCAToken) != Currency.unwrap(key.currency0) && 
@@ -112,7 +112,7 @@ contract SuperDCAHook is BaseHook {
         )) {
             return 0;
         }
-        
+
         // Update reward index before we mint reward tokens
         _updateRewardIndex();
 
@@ -125,14 +125,11 @@ contract SuperDCAHook is BaseHook {
         if (tokenInfo.stakedAmount == 0) return 0;
 
         // Calculate rewards based on staked amount and reward index delta
-        uint256 rewardAmount = (tokenInfo.stakedAmount * (rewardIndex - tokenInfo.lastRewardIndex)) / 1e18;
+        uint256 rewardAmount = tokenInfo.stakedAmount * (rewardIndex - tokenInfo.lastRewardIndex) / 1e18;
         if (rewardAmount == 0) return 0;
 
         // Update last reward index
         tokenInfo.lastRewardIndex = rewardIndex;
-
-        // Mint new tokens
-        superDCAToken.mint(address(this), rewardAmount);
 
         return rewardAmount;
     }
@@ -145,21 +142,20 @@ contract SuperDCAHook is BaseHook {
     function _handleDistributionAndSettlement(PoolKey calldata key, bytes calldata hookData) internal {
         // Must sync the pool manager to the token before distributing tokens
         poolManager.sync(Currency.wrap(address(superDCAToken)));
-
-        uint256 mintAmount = _mintTokens(key, hookData);
-        if (mintAmount == 0) return;
+        uint256 rewardAmount = _getRewardTokens(key);
+        if (rewardAmount == 0) return;
 
         // Check if pool has liquidity before proceeding with donation
         uint128 liquidity = IPoolManager(msg.sender).getLiquidity(key.toId());
         if (liquidity == 0) {
             // If no liquidity, just send everything to developer
-            superDCAToken.transfer(developerAddress, mintAmount);
+            superDCAToken.transfer(developerAddress, rewardAmount);
             return;
         }
 
         // Split the mint amount between developer and community
-        uint256 developerShare = mintAmount / 2;
-        uint256 communityShare = mintAmount - developerShare;
+        uint256 developerShare = rewardAmount / 2;
+        uint256 communityShare = rewardAmount - developerShare;
 
         // Donate community share to pool
         if (address(superDCAToken) == Currency.unwrap(key.currency0)) {
@@ -212,9 +208,8 @@ contract SuperDCAHook is BaseHook {
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
             // Normalize by 1e18 to maintain precision
-            rewardIndex += (mintAmount * 1e18) / totalStakedAmount;
+            rewardIndex += mintAmount * 1e18 / totalStakedAmount;
             lastMinted = currentTime;
-            
             emit RewardIndexUpdated(rewardIndex);
         }
     }
