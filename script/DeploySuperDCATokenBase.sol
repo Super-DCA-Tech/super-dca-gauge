@@ -44,8 +44,7 @@ abstract contract DeploySuperDCATokenBase is Script {
 
     function setUp() public virtual {
         deployerPrivateKey = vm.envOr(
-            "DEPLOYER_PRIVATE_KEY",
-            uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80)
+            "DEPLOYER_PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80)
         );
     }
 
@@ -66,50 +65,28 @@ abstract contract DeploySuperDCATokenBase is Script {
         // Deploy proxy and initialize token
         bytes memory initData = abi.encodeCall(
             SuperDCAToken.initialize,
-            (
-                tokenConfig.defaultAdmin,
-                tokenConfig.pauser,
-                tokenConfig.minter,
-                tokenConfig.upgrader
-            )
+            (tokenConfig.defaultAdmin, tokenConfig.pauser, tokenConfig.minter, tokenConfig.upgrader)
         );
 
         dcaToken = SuperDCAToken(
-            address(new TransparentUpgradeableProxy(
-                address(tokenImplementation),
-                tokenConfig.defaultAdmin,
-                initData
-            ))
+            address(new TransparentUpgradeableProxy(address(tokenImplementation), tokenConfig.defaultAdmin, initData))
         );
 
         console2.log("Deployed DCA Token:", address(dcaToken));
 
         // Deploy hook with correct flags using HookMiner
-        uint160 flags = uint160(
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
-        );
+        uint160 flags = uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager,
-            dcaToken,
-            hookConfig.developerAddress,
-            hookConfig.mintRate
-        );
-        
-        (address hookAddress, bytes32 salt) = HookMiner.find(
-            CREATE2_DEPLOYER,
-            flags,
-            type(SuperDCAGauge).creationCode,
-            constructorArgs
-        );
+        bytes memory constructorArgs =
+            abi.encode(hookConfig.poolManager, dcaToken, hookConfig.developerAddress, hookConfig.mintRate);
+
+        (address hookAddress, bytes32 salt) =
+            HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
 
         // Deploy the hook using CREATE2 with the mined salt
         hook = new SuperDCAGauge{salt: salt}(
-            IPoolManager(hookConfig.poolManager),
-            dcaToken,
-            hookConfig.developerAddress,
-            hookConfig.mintRate
+            IPoolManager(hookConfig.poolManager), dcaToken, hookConfig.developerAddress, hookConfig.mintRate
         );
 
         require(address(hook) == hookAddress, "Hook address mismatch");
@@ -123,12 +100,8 @@ abstract contract DeploySuperDCATokenBase is Script {
         console2.log("Granted MINTER_ROLE to Hook");
 
         // Create pool key
-        address token0 = address(dcaToken) < poolConfig.otherToken
-            ? address(dcaToken) 
-            : poolConfig.otherToken;
-        address token1 = address(dcaToken) < poolConfig.otherToken
-            ? poolConfig.otherToken 
-            : address(dcaToken);
+        address token0 = address(dcaToken) < poolConfig.otherToken ? address(dcaToken) : poolConfig.otherToken;
+        address token1 = address(dcaToken) < poolConfig.otherToken ? poolConfig.otherToken : address(dcaToken);
 
         poolKey = PoolKey({
             currency0: Currency.wrap(token0),

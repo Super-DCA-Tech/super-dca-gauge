@@ -6,10 +6,10 @@ contract MockERC20Token {
     string public symbol;
     uint8 public decimals;
     uint256 public totalSupply;
-    
+
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
-    
+
     address public lastParam__transfer_to;
     uint256 public lastParam__transfer_amount;
     bool public shouldRevertOnNextCall;
@@ -32,10 +32,10 @@ contract MockERC20Token {
     function transfer(address _to, uint256 _amount) external returns (bool) {
         require(!shouldRevertOnNextCall, "MockERC20Token: Revert Requested");
         require(balanceOf[msg.sender] >= _amount, "MockERC20Token: Insufficient balance");
-        
+
         balanceOf[msg.sender] -= _amount;
         balanceOf[_to] += _amount;
-        
+
         lastParam__transfer_amount = _amount;
         lastParam__transfer_to = _to;
         return true;
@@ -45,7 +45,7 @@ contract MockERC20Token {
         require(!shouldRevertOnNextCall, "MockERC20Token: Revert Requested");
         require(balanceOf[from] >= amount, "MockERC20Token: Insufficient balance");
         require(allowance[from][msg.sender] >= amount, "MockERC20Token: Insufficient allowance");
-        
+
         allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
         balanceOf[to] += amount;

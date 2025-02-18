@@ -8,10 +8,10 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 contract DeploySuperDCAUnichainSepolia is DeploySuperDCATokenBase {
     // Token constants
-    address constant ADMIN = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a; 
-    address constant PAUSER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;   
-    address constant MINTER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a; 
-    address constant UPGRADER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a; 
+    address constant ADMIN = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
+    address constant PAUSER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
+    address constant MINTER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
+    address constant UPGRADER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
 
     // Hook constants
     address constant POOL_MANAGER = 0x00B036B58a818B1BC34d502D3fE730Db729e62AC;
@@ -33,20 +33,11 @@ contract DeploySuperDCAUnichainSepolia is DeploySuperDCATokenBase {
     }
 
     function getTokenConfiguration() public pure override returns (TokenConfiguration memory) {
-        return TokenConfiguration({
-            defaultAdmin: ADMIN,
-            pauser: PAUSER,
-            minter: MINTER,
-            upgrader: UPGRADER
-        });
+        return TokenConfiguration({defaultAdmin: ADMIN, pauser: PAUSER, minter: MINTER, upgrader: UPGRADER});
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({
-            poolManager: POOL_MANAGER,
-            developerAddress: DEVELOPER,
-            mintRate: MINT_RATE
-        });
+        return HookConfiguration({poolManager: POOL_MANAGER, developerAddress: DEVELOPER, mintRate: MINT_RATE});
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {

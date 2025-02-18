@@ -12,7 +12,6 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-
 /**
  * @title SuperDCAGauge
  * @notice A Uniswap V4 pool hook that implements a staking and reward distribution system.
@@ -117,10 +116,13 @@ contract SuperDCAGauge is BaseHook {
      */
     function _getRewardTokens(PoolKey calldata key) internal returns (uint256) {
         // Validate pool has SuperDCAToken and correct fee
-        if (key.fee != POOL_FEE || (
-            address(superDCAToken) != Currency.unwrap(key.currency0) && 
-            address(superDCAToken) != Currency.unwrap(key.currency1)
-        )) {
+        if (
+            key.fee != POOL_FEE
+                || (
+                    address(superDCAToken) != Currency.unwrap(key.currency0)
+                        && address(superDCAToken) != Currency.unwrap(key.currency1)
+                )
+        ) {
             return 0;
         }
 
@@ -128,10 +130,10 @@ contract SuperDCAGauge is BaseHook {
         _updateRewardIndex();
 
         // Get token reward info for the non-SuperDCAToken currency
-        address otherToken = address(superDCAToken) == Currency.unwrap(key.currency0) 
-            ? Currency.unwrap(key.currency1) 
+        address otherToken = address(superDCAToken) == Currency.unwrap(key.currency0)
+            ? Currency.unwrap(key.currency1)
             : Currency.unwrap(key.currency0);
-        
+
         TokenRewardInfo storage tokenInfo = tokenRewardInfos[otherToken];
         if (tokenInfo.stakedAmount == 0) return 0;
 
@@ -217,7 +219,7 @@ contract SuperDCAGauge is BaseHook {
 
         uint256 currentTime = block.timestamp;
         uint256 elapsed = currentTime - lastMinted;
-        
+
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
             // Normalize by 1e18 to maintain precision
@@ -235,7 +237,7 @@ contract SuperDCAGauge is BaseHook {
      */
     function stake(address token, uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
-        
+
         // Update reward index before modifying stake
         _updateRewardIndex();
 
@@ -265,7 +267,7 @@ contract SuperDCAGauge is BaseHook {
      */
     function unstake(address token, uint256 amount) external {
         TokenRewardInfo storage info = tokenRewardInfos[token];
-        
+
         if (amount == 0) revert ZeroAmount();
         if (info.stakedAmount < amount) revert InsufficientBalance();
         if (userStakes[msg.sender][token] < amount) revert InsufficientBalance();
