@@ -3,7 +3,7 @@ pragma solidity ^0.8.22;
 
 import {Script} from "forge-std/Script.sol";
 import {SuperDCAToken} from "../src/SuperDCAToken.sol";
-import {SuperDCAHook} from "../src/SuperDCAHook.sol";
+import {SuperDCAGauge} from "../src/SuperDCAGauge.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -39,7 +39,7 @@ abstract contract DeploySuperDCATokenBase is Script {
 
     uint256 public deployerPrivateKey;
     SuperDCAToken public dcaToken;
-    SuperDCAHook public hook;
+    SuperDCAGauge public hook;
     PoolKey public poolKey;
 
     function setUp() public virtual {
@@ -53,7 +53,7 @@ abstract contract DeploySuperDCATokenBase is Script {
     function getHookConfiguration() public virtual returns (HookConfiguration memory);
     function getPoolConfiguration() public virtual returns (PoolConfiguration memory);
 
-    function run() public virtual returns (SuperDCAToken, SuperDCAHook) {
+    function run() public virtual returns (SuperDCAToken, SuperDCAGauge) {
         vm.startBroadcast(deployerPrivateKey);
 
         TokenConfiguration memory tokenConfig = getTokenConfiguration();
@@ -100,12 +100,12 @@ abstract contract DeploySuperDCATokenBase is Script {
         (address hookAddress, bytes32 salt) = HookMiner.find(
             CREATE2_DEPLOYER,
             flags,
-            type(SuperDCAHook).creationCode,
+            type(SuperDCAGauge).creationCode,
             constructorArgs
         );
 
         // Deploy the hook using CREATE2 with the mined salt
-        hook = new SuperDCAHook{salt: salt}(
+        hook = new SuperDCAGauge{salt: salt}(
             IPoolManager(hookConfig.poolManager),
             dcaToken,
             hookConfig.developerAddress,

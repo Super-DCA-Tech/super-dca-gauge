@@ -14,20 +14,23 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 
 
 /**
- * @title SuperDCAHook
- * @notice A Uniswap V4 pool hook to distribute SuperDCAToken tokens.
- *   – Before liquidity is added: resets the LP timelock, mints tokens, donates half to the pool,
- *     and transfers half to the developer.
- *   – Before liquidity is removed: if the LP is unlocked (timelock expired), the same distribution occurs.
+ * @title SuperDCAGauge
+ * @notice A Uniswap V4 pool hook that implements a staking and reward distribution system.
+ * @dev This contract allows users to stake SuperDCATokens for specific token pools and earn rewards
+ *      based on their staked amount and time. Rewards are distributed when liquidity is added or
+ *      removed from the associated Uniswap V4 pools.
  *
- * Distribution logic:
- *   mintAmount = (block.timestamp - lastMinted) * mintRate;
- *   community share = mintAmount / 2  (donated via call to donate)
- *   developer share = mintAmount - community share (transferred via ERC20 transfer)
+ * Key features:
+ * - Staking: Users can stake SuperDCATokens for specific token pools
+ * - Reward Distribution: Rewards are calculated based on staked amount and time
+ * - Pool Integration: Rewards are split between the pool (community) and developer
  *
- * The hook is integrated with SuperDCAToken so that its mint() and transfer() functions can be used.
+ * Reward calculation:
+ * - Global reward index increases based on time and mint rate
+ * - Individual rewards = staked_amount * (current_index - last_claim_index)
+ * - Distribution: 50% to pool (community), 50% to developer
  */
-contract SuperDCAHook is BaseHook {
+contract SuperDCAGauge is BaseHook {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -35,6 +38,11 @@ contract SuperDCAHook is BaseHook {
     // Constants
     uint256 public constant POOL_FEE = 500;
 
+    /**
+     * @notice Information about a token's staking and rewards
+     * @param stakedAmount Total amount of SuperDCATokens staked for this token
+     * @param lastRewardIndex The reward index when rewards were last claimed
+     */
     struct TokenRewardInfo {
         uint256 stakedAmount;
         uint256 lastRewardIndex;
@@ -102,7 +110,10 @@ contract SuperDCAHook is BaseHook {
     }
 
     /**
-     * @notice Internal function to calculate and distribute tokens.
+     * @notice Calculates and returns the reward amount for a specific pool
+     * @dev Only processes rewards for pools that include SuperDCAToken and have the correct fee
+     * @param key The pool key containing currency pair and fee information
+     * @return Amount of reward tokens to be distributed
      */
     function _getRewardTokens(PoolKey calldata key) internal returns (uint256) {
         // Validate pool has SuperDCAToken and correct fee
@@ -135,9 +146,10 @@ contract SuperDCAHook is BaseHook {
     }
 
     /**
-     * @dev Internal function to handle token distribution and settlement
-     * @param key The pool key (identifies the pool)
-     * @param hookData Arbitrary hook data
+     * @notice Handles the distribution of rewards between the pool and developer
+     * @dev Syncs the pool manager, calculates rewards, and settles the distribution
+     * @param key The pool key identifying the Uniswap V4 pool
+     * @param hookData Additional data passed to the hook
      */
     function _handleDistributionAndSettlement(PoolKey calldata key, bytes calldata hookData) internal {
         // Must sync the pool manager to the token before distributing tokens
@@ -197,7 +209,8 @@ contract SuperDCAHook is BaseHook {
     }
 
     /**
-     * @notice Updates the global reward index based on elapsed time
+     * @notice Updates the global reward index based on elapsed time and mint rate
+     * @dev The reward index increases proportionally to the time passed and total staked amount
      */
     function _updateRewardIndex() internal {
         if (totalStakedAmount == 0) return;
@@ -215,9 +228,10 @@ contract SuperDCAHook is BaseHook {
     }
 
     /**
-     * @notice Stakes tokens for a specific token pool
-     * @param token The token to stake for
-     * @param amount The amount to stake
+     * @notice Allows users to stake SuperDCATokens for a specific token pool
+     * @dev Updates reward index before modifying stakes to ensure accurate reward tracking
+     * @param token The token address representing the pool to stake for
+     * @param amount The amount of SuperDCATokens to stake
      */
     function stake(address token, uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
@@ -244,9 +258,10 @@ contract SuperDCAHook is BaseHook {
     }
 
     /**
-     * @notice Unstakes tokens from a specific token pool
-     * @param token The token to unstake from
-     * @param amount The amount to unstake
+     * @notice Allows users to unstake their SuperDCATokens from a specific token pool
+     * @dev Updates reward index before modifying stakes to ensure accurate reward tracking
+     * @param token The token address representing the pool to unstake from
+     * @param amount The amount of SuperDCATokens to unstake
      */
     function unstake(address token, uint256 amount) external {
         TokenRewardInfo storage info = tokenRewardInfos[token];
@@ -278,27 +293,29 @@ contract SuperDCAHook is BaseHook {
     }
 
     /**
-     * @notice Returns the list of tokens a user has staked
-     * @param user The address of the user
-     * @return tokens Array of token addresses the user has staked
+     * @notice Retrieves all token pools a user has staked in
+     * @param user The address of the user to query
+     * @return tokens Array of token addresses where the user has active stakes
      */
     function getUserStakedTokens(address user) external view returns (address[] memory) {
         return userStakedTokens[user].values();
     }
 
     /**
-     * @notice Returns the stake amount for a specific user and token
-     * @param user The address of the user
-     * @param token The token address to query
-     * @return amount The amount staked
+     * @notice Retrieves the stake amount for a specific user and token pool
+     * @param user The address of the user to query
+     * @param token The token address representing the pool
+     * @return amount The amount of SuperDCATokens staked
      */
     function getUserStakeAmount(address user, address token) external view returns (uint256) {
         return userStakes[user][token];
     }
 
     /**
-     * @notice Returns the pending rewards for a token
-     * @param token The token to check rewards for
+     * @notice Calculates the pending rewards for a specific token pool
+     * @dev Includes unclaimed rewards plus accrued rewards since last update
+     * @param token The token address representing the pool
+     * @return The total amount of pending rewards
      */
     function getPendingRewards(address token) external view returns (uint256) {
         TokenRewardInfo storage info = tokenRewardInfos[token];

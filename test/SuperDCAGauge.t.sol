@@ -7,7 +7,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {SuperDCAHook} from "../src/SuperDCAHook.sol";
+import {SuperDCAGauge} from "../src/SuperDCAGauge.sol";
 import {SuperDCAToken} from "../src/SuperDCAToken.sol";
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -17,11 +17,11 @@ import {Test} from "forge-std/Test.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
 
-contract SuperDCAHookTest is Test, Deployers {
+contract SuperDCAGaugeTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
-    SuperDCAHook hook;
+    SuperDCAGauge hook;
     SuperDCAToken dcaToken;
     PoolId poolId;
     address developer = address(0xDEADBEEF);
@@ -108,8 +108,8 @@ contract SuperDCAHookTest is Test, Deployers {
             uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG) ^ (0x4242 << 144)
         );
         bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate);
-        deployCodeTo("SuperDCAHook.sol:SuperDCAHook", constructorArgs, flags);
-        hook = SuperDCAHook(flags);
+        deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
+        hook = SuperDCAGauge(flags);
 
         // Grant minter role to the hook
         bytes32 MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -132,7 +132,7 @@ contract SuperDCAHookTest is Test, Deployers {
     }
 }
 
-contract ConstructorTest is SuperDCAHookTest {
+contract ConstructorTest is SuperDCAGaugeTest {
     function test_initialization() public view {
         // Test initial state
         assertEq(address(hook.superDCAToken()), address(dcaToken), "DCA token not set correctly");
@@ -159,7 +159,7 @@ contract ConstructorTest is SuperDCAHookTest {
     }
 }
 
-contract HookPermissionsTest is SuperDCAHookTest {
+contract HookPermissionsTest is SuperDCAGaugeTest {
     function test_hookPermissions() public {
         Hooks.Permissions memory permissions = hook.getHookPermissions();
         assertTrue(permissions.beforeAddLiquidity, "beforeAddLiquidity should be enabled");
@@ -177,7 +177,7 @@ contract HookPermissionsTest is SuperDCAHookTest {
     }
 }
 
-contract BeforeAddLiquidityTest is SuperDCAHookTest {
+contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
     function test_distribution_on_addLiquidity() public {
         // Setup: Stake some tokens first using helper.
         uint256 stakeAmount = 100e18;
@@ -250,7 +250,7 @@ contract BeforeAddLiquidityTest is SuperDCAHookTest {
     }
 }
 
-contract BeforeRemoveLiquidityTest is SuperDCAHookTest {
+contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
     function test_distribution_on_removeLiquidity() public {
         // Setup: Stake some tokens first
         uint256 stakeAmount = 100e18;
@@ -287,7 +287,7 @@ contract BeforeRemoveLiquidityTest is SuperDCAHookTest {
     }
 }
 
-contract StakeTest is SuperDCAHookTest {
+contract StakeTest is SuperDCAGaugeTest {
     function test_stake() public {
         // Setup: Approve and stake tokens using helper.
         uint256 stakeAmount = 100e18;
@@ -328,12 +328,12 @@ contract StakeTest is SuperDCAHookTest {
     }
 
     function test_stake_revert_zeroAmount() public {
-        vm.expectRevert(SuperDCAHook.ZeroAmount.selector);
+        vm.expectRevert(SuperDCAGauge.ZeroAmount.selector);
         hook.stake(address(weth), 0);
     }
 }
 
-contract UnstakeTest is SuperDCAHookTest {
+contract UnstakeTest is SuperDCAGaugeTest {
     function setUp() public override {
         super.setUp();
         // Stake initial amount in setup
@@ -374,16 +374,16 @@ contract UnstakeTest is SuperDCAHookTest {
     function test_unstake_revert_insufficientBalance() public {
         // We already have 100e18 staked from setUp()
         // No need to stake again, just try to unstake more than we have
-        vm.expectRevert(SuperDCAHook.InsufficientBalance.selector);
+        vm.expectRevert(SuperDCAGauge.InsufficientBalance.selector);
         _unstake(address(weth), 101e18);
 
         // Try to unstake from token that hasn't been staked
-        vm.expectRevert(SuperDCAHook.InsufficientBalance.selector);
+        vm.expectRevert(SuperDCAGauge.InsufficientBalance.selector);
         _unstake(address(dcaToken), 100e18);
     }
 }
 
-contract GetUserStakedTokensTest is SuperDCAHookTest {
+contract GetUserStakedTokensTest is SuperDCAGaugeTest {
     function test_getUserStakedTokens() public {
         // Stake tokens
         _stake(address(weth), 100e18);
@@ -397,7 +397,7 @@ contract GetUserStakedTokensTest is SuperDCAHookTest {
     }
 }
 
-contract GetUserStakeAmountTest is SuperDCAHookTest {
+contract GetUserStakeAmountTest is SuperDCAGaugeTest {
     function test_getUserStakeAmount() public {
         // Stake tokens
         _stake(address(weth), 100e18);
@@ -411,7 +411,7 @@ contract GetUserStakeAmountTest is SuperDCAHookTest {
     }
 }
 
-contract RewardsTest is SuperDCAHookTest {
+contract RewardsTest is SuperDCAGaugeTest {
     MockERC20Token public usdc;
     PoolKey usdcKey;
 

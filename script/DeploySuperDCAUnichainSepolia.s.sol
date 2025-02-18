@@ -3,7 +3,7 @@ pragma solidity ^0.8.22;
 
 import {DeploySuperDCATokenBase} from "./DeploySuperDCATokenBase.sol";
 import {SuperDCAToken} from "../src/SuperDCAToken.sol";
-import {SuperDCAHook} from "../src/SuperDCAHook.sol";
+import {SuperDCAGauge} from "../src/SuperDCAGauge.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 contract DeploySuperDCAUnichainSepolia is DeploySuperDCATokenBase {
@@ -28,7 +28,7 @@ contract DeploySuperDCAUnichainSepolia is DeploySuperDCATokenBase {
     // 2^96 * 10^-12 = 79228162514264337593543950336 * 10^-12 = 79228162514264
     uint160 constant INITIAL_SQRT_PRICE = 79228162514264; // 1:1 price accounting for decimal difference
 
-    function run() public override returns (SuperDCAToken, SuperDCAHook) {
+    function run() public override returns (SuperDCAToken, SuperDCAGauge) {
         return super.run();
     }
 
