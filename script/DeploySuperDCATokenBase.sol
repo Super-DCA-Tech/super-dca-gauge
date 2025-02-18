@@ -46,8 +46,8 @@ abstract contract DeploySuperDCATokenBase is Script {
     uint256 public deployerPrivateKey;
     SuperDCAToken public dcaToken;
     SuperDCAGauge public hook;
-    PoolKey public poolKey0;  // First pool (e.g. WETH/DCA)
-    PoolKey public poolKey1;  // Second pool (e.g. USDC/DCA)
+    PoolKey public poolKey0; // First pool (e.g. WETH/DCA)
+    PoolKey public poolKey1; // Second pool (e.g. USDC/DCA)
 
     function setUp() public virtual {
         deployerPrivateKey = vm.envOr(
@@ -64,7 +64,7 @@ abstract contract DeploySuperDCATokenBase is Script {
 
         TokenConfiguration memory tokenConfig = getTokenConfiguration();
         HookConfiguration memory hookConfig = getHookConfiguration();
-        PoolConfiguration memory poolConfig = getPoolConfiguration(); 
+        PoolConfiguration memory poolConfig = getPoolConfiguration();
 
         // Deploy token implementation
         SuperDCAToken tokenImplementation = new SuperDCAToken();
