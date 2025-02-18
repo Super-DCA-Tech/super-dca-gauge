@@ -55,7 +55,7 @@ contract SuperDCAGauge is BaseHook {
 
     // Reward tracking
     uint256 public totalStakedAmount;
-    uint256 public rewardIndex = 1e18; // Start at 1e18 to avoid division by zero issues
+    uint256 public rewardIndex = 0;
     mapping(address token => TokenRewardInfo info) public tokenRewardInfos;
     mapping(address user => EnumerableSet.AddressSet stakedTokens) private userStakedTokens;
     mapping(address user => mapping(address token => uint256 amount)) public userStakes;

@@ -143,7 +143,7 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertEq(hook.mintRate(), mintRate, "Mint rate not set correctly");
         assertEq(hook.lastMinted(), block.timestamp, "Last minted time not set correctly");
         assertEq(hook.totalStakedAmount(), 0, "Initial staked amount should be 0");
-        assertEq(hook.rewardIndex(), 1e18, "Initial reward index should be 1e18");
+        assertEq(hook.rewardIndex(), 0, "Initial reward index should be 1e18");
 
         // Test hook permissions
         Hooks.Permissions memory permissions = hook.getHookPermissions();

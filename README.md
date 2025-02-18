@@ -1,9 +1,24 @@
 ## Super DCA Token & Guage
 ### Super DCA uses Uniswap V4 Hooks for Token Distribution
-The `SuperDCAGauge` contract is a specialized Uniswap V4 pool hook designed to facilitate the distribution of `SuperDCAToken` tokens. It integrates with the Super DCA Protocol to ensure that tokens are minted and distributed efficiently during liquidity events. The primary functions of the `SuperDCAGauge` are:
-- **Before Liquidity Addition**: When liquidity is added to the pool, the hook resets the LP timelock, mints new `SuperDCAToken` tokens, donates half of the minted tokens to the pool, and transfers the remaining half to the developer.
-- **Before Liquidity Removal**: If the LP timelock has expired, the same distribution process occurs before liquidity is removed from the pool.
+The `SuperDCAGauge` contract is a specialized Uniswap V4 pool hook designed to implement a staking and reward distribution system for `SuperDCAToken` tokens. It integrates with Uniswap V4 pools to distribute rewards during liquidity events. The primary functions of the `SuperDCAGauge` are:
 
+- **Before Liquidity Addition**: When liquidity is added to the pool, the hook:
+  1. Updates the global reward index based on elapsed time and mint rate
+  2. Calculates rewards for the pool based on staked amounts
+  3. If rewards are available:
+     - Splits rewards 50/50 between the pool (community) and developer
+     - Donates the community share to the pool
+     - Transfers the developer share to the developer address
+
+- **Before Liquidity Removal**: The same distribution process occurs before liquidity is removed, following identical steps as the liquidity addition hook.
+
+Key features:
+- Only processes rewards for pools that include SuperDCAToken and have the correct fee (0.05%)
+- Users can stake SuperDCATokens for specific token pools to participate in rewards
+- Rewards for each pool are calculated based on staked amounts per pool, the total staked amount, the mint rate, and time elapsed
+
+
+#### DistributionProcess Diagram
 ```mermaid
 stateDiagram-v2
     direction LR
@@ -24,9 +39,14 @@ stateDiagram-v2
     Hook_ETH --> Developer: 6.transfer()
 ```
 1. The `Liquidity Provider` adds/removes liquidity to the `ETH‑DCA Pool`
-2. The `ETH‑DCA Pool` calls the `SuperDCAGauge` contract to distribute tokens to the `SuperDCAToken` contract.
-3. The `SuperDCAToken` contract mints tokens and transfers them to the `SuperDCAGauge` contract.
-4. The `SuperDCAGauge` contract donates tokens to the `ETH‑DCA Pool` and transfers the remaining tokens to the `Developer`.
+2. The `ETH‑DCA Pool` calls the `SuperDCAGauge` hook's beforeModifyLiquidity function
+3. The `SuperDCAGauge` calculates rewards based on elapsed time and staked amounts
+4. The `SuperDCAToken` mints new tokens to the `SuperDCAGauge` based on the mint rate
+
+The `SuperDCAGauge` splits rewards 50/50 between:
+
+   5. Pool (community share): Donated via Uniswap v4's donate function
+   6. Developer: Transferred directly to developer address
 
 ### Super DCA Gauge Distribution System
 
@@ -48,20 +68,23 @@ Total Staked = 1000 DCA
 ```
 Consider the emission rate of 100 DCA/s (in wei). After 20 seconds, 2000 DCA  rewards are generated. Which means that the community share is **1000 DCA**.
 ```
-Reward Index = 1000000000000000000
+Current Reward Index = 0
 Rewards = 1000 DCA
 Total Staked = 1000 DCA
-Reward per token = 1 DCA
-Next Reward Index = 1000000000000000001 
+Reward per Token = Reward / Total Staked
+                 = 1000 DCA / 1000 DCA
+                 = 1 DCA
+Next Reward Index += Rewards per Token
+                  = 0 + 1 DCA
+                  = 1 DCA
 ```
 This indicates all pools have been credited with 2 units of reward per token staked. And the math for recovering the current amount of rewards for each pool is as follows:
 ```
 Rewards = stakedAmount * (currentIndex - lastClaimIndex)
-USDC-DCA Rewards = 600 DCA * (1000000000000000001 - 1000000000000000000) = 600 DCA
-WETH-DCA Rewards = 400 DCA * (1000000000000000001 - 1000000000000000000) = 400 DCA
+USDC-DCA Rewards = 600 DCA * (1 - 0) = 600 DCA
+WETH-DCA Rewards = 400 DCA * (1 - 0) = 400 DCA
 ```
-When a pool triggers a reward distribution, the `rewardIndex` is updated to the current index and that pool's share of the rewards is minted and distributed to the pool and the developer.
-
+When a pool triggers a reward distribution, the `rewardIndex` is updated to the current index and that pool's share of the rewards is minted and distributed to the pool and the developer. The other pools that did not trigger a reward distribution are not affected.
 
 ## Deployment Addresses
 
