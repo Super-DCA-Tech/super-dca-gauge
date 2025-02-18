@@ -31,16 +31,23 @@ abstract contract DeploySuperDCATokenBase is Script {
     }
 
     struct PoolConfiguration {
-        address otherToken;
-        uint24 fee;
-        int24 tickSpacing;
-        uint160 initialSqrtPriceX96;
+        // First pool config (e.g. WETH)
+        address token0;
+        uint24 fee0;
+        int24 tickSpacing0;
+        uint160 initialSqrtPriceX96_0;
+        // Second pool config (e.g. USDC)
+        address token1;
+        uint24 fee1;
+        int24 tickSpacing1;
+        uint160 initialSqrtPriceX96_1;
     }
 
     uint256 public deployerPrivateKey;
     SuperDCAToken public dcaToken;
     SuperDCAGauge public hook;
-    PoolKey public poolKey;
+    PoolKey public poolKey0;  // First pool (e.g. WETH/DCA)
+    PoolKey public poolKey1;  // Second pool (e.g. USDC/DCA)
 
     function setUp() public virtual {
         deployerPrivateKey = vm.envOr(
@@ -57,7 +64,7 @@ abstract contract DeploySuperDCATokenBase is Script {
 
         TokenConfiguration memory tokenConfig = getTokenConfiguration();
         HookConfiguration memory hookConfig = getHookConfiguration();
-        PoolConfiguration memory poolConfig = getPoolConfiguration();
+        PoolConfiguration memory poolConfig = getPoolConfiguration(); 
 
         // Deploy token implementation
         SuperDCAToken tokenImplementation = new SuperDCAToken();
@@ -99,22 +106,39 @@ abstract contract DeploySuperDCATokenBase is Script {
 
         console2.log("Granted MINTER_ROLE to Hook");
 
-        // Create pool key
-        address token0 = address(dcaToken) < poolConfig.otherToken ? address(dcaToken) : poolConfig.otherToken;
-        address token1 = address(dcaToken) < poolConfig.otherToken ? poolConfig.otherToken : address(dcaToken);
+        // Create first pool key (e.g. WETH/DCA)
+        address token0_0 = address(dcaToken) < poolConfig.token0 ? address(dcaToken) : poolConfig.token0;
+        address token0_1 = address(dcaToken) < poolConfig.token0 ? poolConfig.token0 : address(dcaToken);
 
-        poolKey = PoolKey({
-            currency0: Currency.wrap(token0),
-            currency1: Currency.wrap(token1),
-            fee: poolConfig.fee,
-            tickSpacing: poolConfig.tickSpacing,
+        poolKey0 = PoolKey({
+            currency0: Currency.wrap(token0_0),
+            currency1: Currency.wrap(token0_1),
+            fee: poolConfig.fee0,
+            tickSpacing: poolConfig.tickSpacing0,
             hooks: IHooks(hook)
         });
 
-        // Initialize pool
-        IPoolManager(hookConfig.poolManager).initialize(poolKey, poolConfig.initialSqrtPriceX96);
+        // Initialize first pool
+        IPoolManager(hookConfig.poolManager).initialize(poolKey0, poolConfig.initialSqrtPriceX96_0);
 
-        console2.log("Initialized Pool");
+        console2.log("Initialized First Pool (e.g. WETH/DCA)");
+
+        // Create second pool key (e.g. USDC/DCA)
+        address token1_0 = address(dcaToken) < poolConfig.token1 ? address(dcaToken) : poolConfig.token1;
+        address token1_1 = address(dcaToken) < poolConfig.token1 ? poolConfig.token1 : address(dcaToken);
+
+        poolKey1 = PoolKey({
+            currency0: Currency.wrap(token1_0),
+            currency1: Currency.wrap(token1_1),
+            fee: poolConfig.fee1,
+            tickSpacing: poolConfig.tickSpacing1,
+            hooks: IHooks(hook)
+        });
+
+        // Initialize second pool
+        IPoolManager(hookConfig.poolManager).initialize(poolKey1, poolConfig.initialSqrtPriceX96_1);
+
+        console2.log("Initialized Second Pool (e.g. USDC/DCA)");
 
         vm.stopBroadcast();
 
