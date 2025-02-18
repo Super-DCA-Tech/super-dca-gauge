@@ -1,4 +1,4 @@
-# Super DCA Token & Guage
+# Super DCA Token & Gauge
 
 ![Super DCA Token & Gauge](./images/UniswapHookEmitterBanner.jpg)
 
