@@ -108,8 +108,10 @@ contract SuperDCAGaugeTest is Test, Deployers {
         );
 
         // Deploy the hook to an address with the correct flags
-        address flags =
-            address(uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG) ^ (0x4242 << 144));
+        address flags = address(
+            uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG)
+                ^ (0x4242 << 144)
+        );
         bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate);
         deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
         hook = SuperDCAGauge(flags);
@@ -147,6 +149,7 @@ contract ConstructorTest is SuperDCAGaugeTest {
 
         // Test hook permissions
         Hooks.Permissions memory permissions = hook.getHookPermissions();
+        assertTrue(permissions.beforeInitialize, "beforeInitialize should be enabled");
         assertTrue(permissions.beforeAddLiquidity, "beforeAddLiquidity should be enabled");
         assertTrue(permissions.beforeRemoveLiquidity, "beforeRemoveLiquidity should be enabled");
         assertFalse(permissions.afterAddLiquidity, "afterAddLiquidity should be disabled");
@@ -177,6 +180,30 @@ contract HookPermissionsTest is SuperDCAGaugeTest {
         assertFalse(permissions.afterSwapReturnDelta, "afterSwapReturnDelta should be disabled");
         assertFalse(permissions.afterAddLiquidityReturnDelta, "afterAddLiquidityReturnDelta should be disabled");
         assertFalse(permissions.afterRemoveLiquidityReturnDelta, "afterRemoveLiquidityReturnDelta should be disabled");
+    }
+}
+
+contract BeforeInitializeTest is SuperDCAGaugeTest {
+    function test_beforeInitialize() public {
+        // Create a pool key with correct fee (500) and SuperDCAToken
+        PoolKey memory correctKey = _createPoolKey(address(0xBEEF), address(dcaToken), 500);
+        manager.initialize(correctKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_wrongFee() public {
+        // Create a pool key with fee != 500 (use fee 100)
+        PoolKey memory wrongFeeKey = _createPoolKey(address(weth), address(dcaToken), 100);
+        // TODO: Handle verify WrappedErrors
+        vm.expectRevert();
+        manager.initialize(wrongFeeKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_wrongToken() public {
+        // Create a pool key with two tokens that aren't SuperDCAToken
+        PoolKey memory wrongTokenKey = _createPoolKey(address(weth), address(0xBEEF), 500);
+        // TODO: Handle verify WrappedErrors
+        vm.expectRevert();
+        manager.initialize(wrongTokenKey, SQRT_PRICE_1_1);
     }
 }
 
@@ -226,24 +253,6 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
         assertEq(
             dcaToken.balanceOf(developer), initialDevBal, "No rewards should be distributed with zero elapsed time"
         );
-    }
-
-    function test_getRewardTokensWrongFee() public {
-        // Create a pool key with fee != 500 (use fee 600) using the helper.
-        PoolKey memory wrongFeeKey = _createPoolKey(address(weth), address(dcaToken), 600);
-        manager.initialize(wrongFeeKey, SQRT_PRICE_1_1);
-
-        // Stake tokens for the non-SuperDCAToken in the pool key
-        uint256 stakeAmount = 100e18;
-        _stake(address(weth), stakeAmount);
-
-        uint256 initialDevBal = dcaToken.balanceOf(developer);
-        uint256 elapsed = 20;
-        vm.warp(block.timestamp + elapsed);
-
-        _modifyLiquidity(wrongFeeKey, 1e18);
-        // Because the fee is not 500, no reward tokens are minted.
-        assertEq(dcaToken.balanceOf(developer), initialDevBal, "No rewards should be distributed for wrong fee");
     }
 }
 
@@ -324,6 +333,30 @@ contract StakeTest is SuperDCAGaugeTest {
         vm.expectRevert(SuperDCAGauge.ZeroAmount.selector);
         hook.stake(address(weth), 0);
     }
+
+    function test_multiple_stakes_same_token() public {
+        // First stake
+        uint256 firstStake = 100e18;
+        _stake(address(weth), firstStake);
+        
+        // Second stake
+        uint256 secondStake = 50e18;
+        _stake(address(weth), secondStake);
+        
+        // Verify combined stake amount
+        assertEq(
+            hook.getUserStakeAmount(address(this), address(weth)), 
+            firstStake + secondStake, 
+            "Combined stake amount incorrect"
+        );
+        
+        // Verify total staked amount
+        assertEq(
+            hook.totalStakedAmount(), 
+            firstStake + secondStake, 
+            "Total staked amount incorrect"
+        );
+    }
 }
 
 contract UnstakeTest is SuperDCAGaugeTest {
@@ -365,6 +398,36 @@ contract UnstakeTest is SuperDCAGaugeTest {
         // Try to unstake from token that hasn't been staked
         vm.expectRevert(SuperDCAGauge.InsufficientBalance.selector);
         _unstake(address(dcaToken), 100e18);
+    }
+
+    function test_partial_unstake() public {
+        // Initial stake of 100e18 from setUp()
+        uint256 initialStake = 100e18;
+        uint256 partialUnstake = 60e18;
+        
+        // Record initial state
+        uint256 initialBalance = dcaToken.balanceOf(address(this));
+        
+        // Perform partial unstake
+        _unstake(address(weth), partialUnstake);
+        
+        // Verify remaining stake
+        assertEq(
+            hook.getUserStakeAmount(address(this), address(weth)), 
+            initialStake - partialUnstake, 
+            "Remaining stake incorrect"
+        );
+        
+        // Verify token transfer
+        assertEq(
+            dcaToken.balanceOf(address(this)), 
+            initialBalance + partialUnstake, 
+            "Tokens not returned correctly"
+        );
+        
+        // Verify token still in staked list since we have remaining stake
+        address[] memory stakedTokens = hook.getUserStakedTokens(address(this));
+        assertEq(stakedTokens.length, 1, "Token should still be in staked list");
     }
 }
 
@@ -553,5 +616,62 @@ contract RewardsTest is SuperDCAGaugeTest {
 
         // Verify total staked amount
         assertEq(hook.totalStakedAmount(), 400e18, "Total staked amount incorrect");
+    }
+
+    function test_reward_distribution_multiple_users() public {
+        // Setup second user
+        address user2 = address(0xBEEF);
+        deal(address(dcaToken), user2, 100e18);
+        
+        // First user already has 100e18 staked from setUp()
+        
+        // Stake as user2
+        vm.startPrank(user2);
+        dcaToken.approve(address(hook), 100e18);
+        hook.stake(address(weth), 100e18);
+        vm.stopPrank();
+        
+        // Add liquidity
+        _modifyLiquidity(key, 1e18);
+        
+        // Advance time
+        uint256 elapsed = 20;
+        vm.warp(block.timestamp + elapsed);
+        
+        // Trigger reward distribution
+        _modifyLiquidity(key, 1e18);
+        
+        // Calculate expected rewards
+        uint256 totalMintAmount = elapsed * mintRate;
+        uint256 expectedDevShare = totalMintAmount / 2;
+        uint256 expectedPoolShare = totalMintAmount - expectedDevShare;
+        
+        // Verify developer rewards
+        assertEq(
+            dcaToken.balanceOf(developer), 
+            expectedDevShare, 
+            "Developer reward incorrect"
+        );
+    }
+
+    function test_reward_distribution_zero_total_stake() public {
+        // Unstake everything
+        _unstake(address(weth), 100e18);
+        
+        // Record initial state
+        uint256 initialDevBalance = dcaToken.balanceOf(developer);
+        
+        // Advance time
+        vm.warp(block.timestamp + 20);
+        
+        // Trigger reward distribution
+        _modifyLiquidity(key, 1e18);
+        
+        // Verify no rewards were distributed
+        assertEq(
+            dcaToken.balanceOf(developer), 
+            initialDevBalance, 
+            "No rewards should be distributed with zero stake"
+        );
     }
 }

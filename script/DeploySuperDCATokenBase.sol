@@ -31,23 +31,15 @@ abstract contract DeploySuperDCATokenBase is Script {
     }
 
     struct PoolConfiguration {
-        // First pool config (e.g. WETH)
+        // First token config (e.g. WETH)
         address token0;
-        uint24 fee0;
-        int24 tickSpacing0;
-        uint160 initialSqrtPriceX96_0;
-        // Second pool config (e.g. USDC)
+        // Second token config (e.g. USDC)
         address token1;
-        uint24 fee1;
-        int24 tickSpacing1;
-        uint160 initialSqrtPriceX96_1;
     }
 
     uint256 public deployerPrivateKey;
     SuperDCAToken public dcaToken;
     SuperDCAGauge public hook;
-    PoolKey public poolKey0; // First pool (e.g. WETH/DCA)
-    PoolKey public poolKey1; // Second pool (e.g. USDC/DCA)
 
     function setUp() public virtual {
         deployerPrivateKey = vm.envOr(
@@ -101,44 +93,24 @@ abstract contract DeploySuperDCATokenBase is Script {
         console2.log("Deployed Hook:", address(hook));
 
         // Grant minter role to hook
-        bytes32 MINTER_ROLE = keccak256("MINTER_ROLE");
-        dcaToken.grantRole(MINTER_ROLE, address(hook));
+        bytes32 minterRole = keccak256("MINTER_ROLE");
+        dcaToken.grantRole(minterRole, address(hook));
 
         console2.log("Granted MINTER_ROLE to Hook");
 
-        // Create first pool key (e.g. WETH/DCA)
-        address token0_0 = address(dcaToken) < poolConfig.token0 ? address(dcaToken) : poolConfig.token0;
-        address token0_1 = address(dcaToken) < poolConfig.token0 ? poolConfig.token0 : address(dcaToken);
+        // Mint 10_000 to the deployer
+        dcaToken.mint(vm.addr(deployerPrivateKey), 10_000 ether);
 
-        poolKey0 = PoolKey({
-            currency0: Currency.wrap(token0_0),
-            currency1: Currency.wrap(token0_1),
-            fee: poolConfig.fee0,
-            tickSpacing: poolConfig.tickSpacing0,
-            hooks: IHooks(hook)
-        });
+        // Stake the ETH token to the hook with 600 DCA
+        dcaToken.approve(address(hook), 1000 ether);
+        hook.stake(poolConfig.token0, 600 ether);
 
-        // Initialize first pool
-        IPoolManager(hookConfig.poolManager).initialize(poolKey0, poolConfig.initialSqrtPriceX96_0);
+        console2.log("Staked 600 ETH to the hook");
 
-        console2.log("Initialized First Pool (e.g. WETH/DCA)");
+        // Stake the USDC token to the hook with 400 DCA
+        hook.stake(poolConfig.token1, 400 ether);
 
-        // Create second pool key (e.g. USDC/DCA)
-        address token1_0 = address(dcaToken) < poolConfig.token1 ? address(dcaToken) : poolConfig.token1;
-        address token1_1 = address(dcaToken) < poolConfig.token1 ? poolConfig.token1 : address(dcaToken);
-
-        poolKey1 = PoolKey({
-            currency0: Currency.wrap(token1_0),
-            currency1: Currency.wrap(token1_1),
-            fee: poolConfig.fee1,
-            tickSpacing: poolConfig.tickSpacing1,
-            hooks: IHooks(hook)
-        });
-
-        // Initialize second pool
-        IPoolManager(hookConfig.poolManager).initialize(poolKey1, poolConfig.initialSqrtPriceX96_1);
-
-        console2.log("Initialized Second Pool (e.g. USDC/DCA)");
+        console2.log("Staked 400 USDC to the hook");
 
         vm.stopBroadcast();
 

@@ -68,6 +68,8 @@ contract SuperDCAGauge is BaseHook {
     // Errors
     error InsufficientBalance();
     error ZeroAmount();
+    error InvalidPoolFee();
+    error PoolMustIncludeSuperDCAToken();
 
     /**
      * @notice Sets the initial state.
@@ -91,11 +93,11 @@ contract SuperDCAGauge is BaseHook {
      */
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
-            beforeInitialize: false,
+            beforeInitialize: true,
             afterInitialize: false,
-            beforeAddLiquidity: true, // Enable beforeAddLiquidity
+            beforeAddLiquidity: true,
             afterAddLiquidity: false,
-            beforeRemoveLiquidity: true, // Enable beforeRemoveLiquidity
+            beforeRemoveLiquidity: true,
             afterRemoveLiquidity: false,
             beforeSwap: false,
             afterSwap: false,
@@ -109,26 +111,39 @@ contract SuperDCAGauge is BaseHook {
     }
 
     /**
+     * @notice Validates that the pool contains SuperDCAToken and has the correct fee
+     * @dev Reverts if the pool configuration is invalid
+     * @dev Prevents using this hook on non-DCA, 0.05%pools
+     * @param sender The address initiating the initialization
+     * @param key The pool key containing currency pair and fee information
+     * @param sqrtPriceX96 The initial sqrt price of the pool
+     * @return The function selector
+     */
+    function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
+        internal
+        override
+        returns (bytes4)
+    {
+        // Validate pool has SuperDCAToken and correct fee
+        if (key.fee != POOL_FEE) {
+            revert InvalidPoolFee();
+        }
+        if (
+            address(superDCAToken) != Currency.unwrap(key.currency0)
+                && address(superDCAToken) != Currency.unwrap(key.currency1)
+        ) {
+            revert PoolMustIncludeSuperDCAToken();
+        }
+        return BaseHook.beforeInitialize.selector;
+    }
+
+    /**
      * @notice Calculates and returns the reward amount for a specific pool
      * @dev Only processes rewards for pools that include SuperDCAToken and have the correct fee
      * @param key The pool key containing currency pair and fee information
      * @return Amount of reward tokens to be distributed
      */
     function _getRewardTokens(PoolKey calldata key) internal returns (uint256) {
-        // Validate pool has SuperDCAToken and correct fee
-        if (
-            key.fee != POOL_FEE
-                || (
-                    address(superDCAToken) != Currency.unwrap(key.currency0)
-                        && address(superDCAToken) != Currency.unwrap(key.currency1)
-                )
-        ) {
-            return 0;
-        }
-
-        // Update reward index before we mint reward tokens
-        _updateRewardIndex();
-
         // Get token reward info for the non-SuperDCAToken currency
         address otherToken = address(superDCAToken) == Currency.unwrap(key.currency0)
             ? Currency.unwrap(key.currency1)
@@ -136,6 +151,9 @@ contract SuperDCAGauge is BaseHook {
 
         TokenRewardInfo storage tokenInfo = tokenRewardInfos[otherToken];
         if (tokenInfo.stakedAmount == 0) return 0;
+
+        // Update reward index before we mint reward tokens
+        _updateRewardIndex();
 
         // Calculate rewards based on staked amount and reward index delta
         uint256 rewardAmount = tokenInfo.stakedAmount * (rewardIndex - tokenInfo.lastRewardIndex) / 1e18;
@@ -187,7 +205,7 @@ contract SuperDCAGauge is BaseHook {
         // Settle the donation
         poolManager.settle();
 
-        // Invariant:At this point, the hook has no tokens left.
+        /// @dev: At this point, there are DCA tokens left in the hook for the other pools.
     }
 
     function _beforeAddLiquidity(

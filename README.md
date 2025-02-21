@@ -105,6 +105,5 @@ When a pool triggers a reward distribution, the `rewardIndex` is updated to the 
 
 | Contract | Address |
 | --- | --- |
-| `SuperDCAToken` | [0x692F2C67bA8A89803e466C9c9cA629729864315a](https://unichain-sepolia.blockscout.com/address/0x692F2C67bA8A89803e466C9c9cA629729864315a) |
-| `SuperDCAGauge` | [0xC2A147E93AFE8D40bEE483028A290CE0CF8cCa00](https://unichain-sepolia.blockscout.com/address/0xC2A147E93AFE8D40bEE483028A290CE0CF8cCa00) |
-
+| `SuperDCAToken` | [0x36eB60A5CbA681F2ec427ceB7F1bce4d956349C7](https://unichain-sepolia.blockscout.com/address/0x36eB60A5CbA681F2ec427ceB7F1bce4d956349C7) |
+| `SuperDCAGauge` | [0x359bE9ffB2Bd35d78752f98E0D313c7776900a00](https://unichain-sepolia.blockscout.com/address/0x359bE9ffB2Bd35d78752f98E0D313c7776900a00) |
