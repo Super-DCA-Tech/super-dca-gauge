@@ -74,7 +74,8 @@ abstract contract DeploySuperDCATokenBase is Script {
         console2.log("Deployed DCA Token:", address(dcaToken));
 
         // Deploy hook with correct flags using HookMiner
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
+        uint160 flags =
+            uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         // Mine the salt that will produce a hook address with the correct flags
         bytes memory constructorArgs =
