@@ -11,4 +11,4 @@
   ffi = true
 
 [rpc_endpoints]
-sepolia-unichain = "https://sepolia.unichain.org/"
+  sepolia-unichain = "https://sepolia.unichain.org/"
