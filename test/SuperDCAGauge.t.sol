@@ -166,7 +166,7 @@ contract ConstructorTest is SuperDCAGaugeTest {
 }
 
 contract HookPermissionsTest is SuperDCAGaugeTest {
-    function test_hookPermissions() public {
+    function test_hookPermissions() public view {
         Hooks.Permissions memory permissions = hook.getHookPermissions();
         assertTrue(permissions.beforeAddLiquidity, "beforeAddLiquidity should be enabled");
         assertTrue(permissions.beforeRemoveLiquidity, "beforeRemoveLiquidity should be enabled");
@@ -636,10 +636,11 @@ contract RewardsTest is SuperDCAGaugeTest {
         // Calculate expected rewards
         uint256 totalMintAmount = elapsed * mintRate;
         uint256 expectedDevShare = totalMintAmount / 2;
-        uint256 expectedPoolShare = totalMintAmount - expectedDevShare;
 
         // Verify developer rewards
         assertEq(dcaToken.balanceOf(developer), expectedDevShare, "Developer reward incorrect");
+
+        // TODO: Verify pool received its share
     }
 
     function test_reward_distribution_zero_total_stake() public {

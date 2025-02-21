@@ -114,13 +114,14 @@ contract SuperDCAGauge is BaseHook {
      * @notice Validates that the pool contains SuperDCAToken and has the correct fee
      * @dev Reverts if the pool configuration is invalid
      * @dev Prevents using this hook on non-DCA, 0.05%pools
-     * @param sender The address initiating the initialization
+     * param sender The address initiating the initialization
      * @param key The pool key containing currency pair and fee information
-     * @param sqrtPriceX96 The initial sqrt price of the pool
+     * param sqrtPriceX96 The initial sqrt price of the pool
      * @return The function selector
      */
-    function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
+    function _beforeInitialize(address /* sender */, PoolKey calldata key, uint160 /* sqrtPriceX96 */)
         internal
+        view
         override
         returns (bytes4)
     {
