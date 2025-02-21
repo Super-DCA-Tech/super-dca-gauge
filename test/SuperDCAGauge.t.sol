@@ -338,24 +338,20 @@ contract StakeTest is SuperDCAGaugeTest {
         // First stake
         uint256 firstStake = 100e18;
         _stake(address(weth), firstStake);
-        
+
         // Second stake
         uint256 secondStake = 50e18;
         _stake(address(weth), secondStake);
-        
+
         // Verify combined stake amount
         assertEq(
-            hook.getUserStakeAmount(address(this), address(weth)), 
-            firstStake + secondStake, 
+            hook.getUserStakeAmount(address(this), address(weth)),
+            firstStake + secondStake,
             "Combined stake amount incorrect"
         );
-        
+
         // Verify total staked amount
-        assertEq(
-            hook.totalStakedAmount(), 
-            firstStake + secondStake, 
-            "Total staked amount incorrect"
-        );
+        assertEq(hook.totalStakedAmount(), firstStake + secondStake, "Total staked amount incorrect");
     }
 }
 
@@ -404,27 +400,23 @@ contract UnstakeTest is SuperDCAGaugeTest {
         // Initial stake of 100e18 from setUp()
         uint256 initialStake = 100e18;
         uint256 partialUnstake = 60e18;
-        
+
         // Record initial state
         uint256 initialBalance = dcaToken.balanceOf(address(this));
-        
+
         // Perform partial unstake
         _unstake(address(weth), partialUnstake);
-        
+
         // Verify remaining stake
         assertEq(
-            hook.getUserStakeAmount(address(this), address(weth)), 
-            initialStake - partialUnstake, 
+            hook.getUserStakeAmount(address(this), address(weth)),
+            initialStake - partialUnstake,
             "Remaining stake incorrect"
         );
-        
+
         // Verify token transfer
-        assertEq(
-            dcaToken.balanceOf(address(this)), 
-            initialBalance + partialUnstake, 
-            "Tokens not returned correctly"
-        );
-        
+        assertEq(dcaToken.balanceOf(address(this)), initialBalance + partialUnstake, "Tokens not returned correctly");
+
         // Verify token still in staked list since we have remaining stake
         address[] memory stakedTokens = hook.getUserStakedTokens(address(this));
         assertEq(stakedTokens.length, 1, "Token should still be in staked list");
@@ -622,56 +614,48 @@ contract RewardsTest is SuperDCAGaugeTest {
         // Setup second user
         address user2 = address(0xBEEF);
         deal(address(dcaToken), user2, 100e18);
-        
+
         // First user already has 100e18 staked from setUp()
-        
+
         // Stake as user2
         vm.startPrank(user2);
         dcaToken.approve(address(hook), 100e18);
         hook.stake(address(weth), 100e18);
         vm.stopPrank();
-        
+
         // Add liquidity
         _modifyLiquidity(key, 1e18);
-        
+
         // Advance time
         uint256 elapsed = 20;
         vm.warp(block.timestamp + elapsed);
-        
+
         // Trigger reward distribution
         _modifyLiquidity(key, 1e18);
-        
+
         // Calculate expected rewards
         uint256 totalMintAmount = elapsed * mintRate;
         uint256 expectedDevShare = totalMintAmount / 2;
         uint256 expectedPoolShare = totalMintAmount - expectedDevShare;
-        
+
         // Verify developer rewards
-        assertEq(
-            dcaToken.balanceOf(developer), 
-            expectedDevShare, 
-            "Developer reward incorrect"
-        );
+        assertEq(dcaToken.balanceOf(developer), expectedDevShare, "Developer reward incorrect");
     }
 
     function test_reward_distribution_zero_total_stake() public {
         // Unstake everything
         _unstake(address(weth), 100e18);
-        
+
         // Record initial state
         uint256 initialDevBalance = dcaToken.balanceOf(developer);
-        
+
         // Advance time
         vm.warp(block.timestamp + 20);
-        
+
         // Trigger reward distribution
         _modifyLiquidity(key, 1e18);
-        
+
         // Verify no rewards were distributed
-        assertEq(
-            dcaToken.balanceOf(developer), 
-            initialDevBalance, 
-            "No rewards should be distributed with zero stake"
-        );
+        assertEq(dcaToken.balanceOf(developer), initialDevBalance, "No rewards should be distributed with zero stake");
     }
 }
