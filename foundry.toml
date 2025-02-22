@@ -1,11 +1,9 @@
 [profile.default]
   libs = ["lib"]
   out = "out"
+  solc = "0.8.26"
   src = "src"
   test = "test"
-  solc = "0.8.26"
-
-
 
   # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
@@ -15,5 +13,5 @@
   ffi = true
 
 [rpc_endpoints]
-  sepolia-unichain = "https://sepolia.unichain.org/"
   sepolia-base = "https://sepolia.base.org/"
+  sepolia-unichain = "https://sepolia.unichain.org/"
