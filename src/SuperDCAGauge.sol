@@ -6,11 +6,12 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {SuperDCAToken} from "./SuperDCAToken.sol";
 import {Pool} from "@uniswap/v4-core/src/libraries/Pool.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
 
 /**
  * @title SuperDCAGauge
@@ -48,7 +49,7 @@ contract SuperDCAGauge is BaseHook {
     }
 
     // State
-    SuperDCAToken public superDCAToken;
+    address public superDCAToken;
     address public developerAddress;
     uint256 public mintRate;
     uint256 public lastMinted;
@@ -74,11 +75,11 @@ contract SuperDCAGauge is BaseHook {
     /**
      * @notice Sets the initial state.
      * @param _poolManager The Uniswap V4 pool manager.
-     * @param _superDCAToken The deployed SuperDCAToken contract.
+     * @param _superDCAToken The address of the SuperDCAToken contract.
      * @param _developerAddress The address of the Developer.
      * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
-    constructor(IPoolManager _poolManager, SuperDCAToken _superDCAToken, address _developerAddress, uint256 _mintRate)
+    constructor(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, uint256 _mintRate)
         BaseHook(_poolManager)
     {
         superDCAToken = _superDCAToken;
@@ -119,7 +120,7 @@ contract SuperDCAGauge is BaseHook {
      * param sqrtPriceX96 The initial sqrt price of the pool
      * @return The function selector
      */
-    function _beforeInitialize(address /* sender */, PoolKey calldata key, uint160 /* sqrtPriceX96 */)
+    function _beforeInitialize(address, /* sender */ PoolKey calldata key, uint160 /* sqrtPriceX96 */ )
         internal
         view
         override
@@ -129,10 +130,7 @@ contract SuperDCAGauge is BaseHook {
         if (key.fee != POOL_FEE) {
             revert InvalidPoolFee();
         }
-        if (
-            address(superDCAToken) != Currency.unwrap(key.currency0)
-                && address(superDCAToken) != Currency.unwrap(key.currency1)
-        ) {
+        if (superDCAToken != Currency.unwrap(key.currency0) && superDCAToken != Currency.unwrap(key.currency1)) {
             revert PoolMustIncludeSuperDCAToken();
         }
         return BaseHook.beforeInitialize.selector;
@@ -146,7 +144,7 @@ contract SuperDCAGauge is BaseHook {
      */
     function _getRewardTokens(PoolKey calldata key) internal returns (uint256) {
         // Get token reward info for the non-SuperDCAToken currency
-        address otherToken = address(superDCAToken) == Currency.unwrap(key.currency0)
+        address otherToken = superDCAToken == Currency.unwrap(key.currency0)
             ? Currency.unwrap(key.currency1)
             : Currency.unwrap(key.currency0);
 
@@ -174,7 +172,7 @@ contract SuperDCAGauge is BaseHook {
      */
     function _handleDistributionAndSettlement(PoolKey calldata key, bytes calldata hookData) internal {
         // Must sync the pool manager to the token before distributing tokens
-        poolManager.sync(Currency.wrap(address(superDCAToken)));
+        poolManager.sync(Currency.wrap(superDCAToken));
         uint256 rewardAmount = _getRewardTokens(key);
         if (rewardAmount == 0) return;
 
@@ -182,7 +180,7 @@ contract SuperDCAGauge is BaseHook {
         uint128 liquidity = IPoolManager(msg.sender).getLiquidity(key.toId());
         if (liquidity == 0) {
             // If no liquidity, just send everything to developer
-            superDCAToken.transfer(developerAddress, rewardAmount);
+            ISuperchainERC20(superDCAToken).mint(developerAddress, rewardAmount);
             return;
         }
 
@@ -190,18 +188,18 @@ contract SuperDCAGauge is BaseHook {
         uint256 developerShare = rewardAmount / 2;
         uint256 communityShare = rewardAmount - developerShare;
 
+        // Mint developer share
+        ISuperchainERC20(superDCAToken).mint(developerAddress, developerShare);
+
+        // Mint community share and donate to pool
+        ISuperchainERC20(superDCAToken).mint(address(poolManager), communityShare);
+
         // Donate community share to pool
-        if (address(superDCAToken) == Currency.unwrap(key.currency0)) {
+        if (superDCAToken == Currency.unwrap(key.currency0)) {
             IPoolManager(msg.sender).donate(key, communityShare, 0, hookData);
         } else {
             IPoolManager(msg.sender).donate(key, 0, communityShare, hookData);
         }
-
-        // Transfer developer share
-        superDCAToken.transfer(developerAddress, developerShare);
-
-        // Transfer community share
-        superDCAToken.transfer(address(poolManager), communityShare);
 
         // Settle the donation
         poolManager.settle();
@@ -261,7 +259,7 @@ contract SuperDCAGauge is BaseHook {
         _updateRewardIndex();
 
         // Transfer tokens from user
-        superDCAToken.transferFrom(msg.sender, address(this), amount);
+        IERC20(superDCAToken).transferFrom(msg.sender, address(this), amount);
 
         // Update token reward info
         TokenRewardInfo storage info = tokenRewardInfos[token];
@@ -308,7 +306,7 @@ contract SuperDCAGauge is BaseHook {
         }
 
         // Transfer tokens back to user
-        superDCAToken.transfer(msg.sender, amount);
+        IERC20(superDCAToken).transfer(msg.sender, amount);
 
         emit Unstaked(token, msg.sender, amount);
     }

@@ -6,12 +6,10 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {SuperDCAGauge} from "../src/SuperDCAGauge.sol";
-import {SuperDCAToken} from "../src/SuperDCAToken.sol";
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Test} from "forge-std/Test.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
@@ -22,7 +20,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
     using CurrencyLibrary for Currency;
 
     SuperDCAGauge hook;
-    SuperDCAToken dcaToken;
+    MockERC20Token public dcaToken;
     PoolId poolId;
     address developer = address(0xDEADBEEF);
     uint256 mintRate = 100; // SDCA tokens per second
@@ -86,26 +84,11 @@ contract SuperDCAGaugeTest is Test, Deployers {
         // Deploy mock WETH
         weth = new MockERC20Token("Wrapped Ether", "WETH", 18);
 
+        // Deploy mock DCA token instead of the actual implementation
+        dcaToken = new MockERC20Token("Super DCA Token", "SDCA", 18);
+
         // Deploy core Uniswap V4 contracts
         deployFreshManagerAndRouters();
-
-        // Deploy the DCA token implementation
-        SuperDCAToken tokenImplementation = new SuperDCAToken();
-
-        // Deploy proxy and initialize it
-        bytes memory initData = abi.encodeCall(
-            SuperDCAToken.initialize,
-            (
-                address(this), // defaultAdmin
-                address(this), // pauser
-                address(this), // minter
-                address(this) // upgrader
-            )
-        );
-
-        dcaToken = SuperDCAToken(
-            address(new TransparentUpgradeableProxy(address(tokenImplementation), address(this), initData))
-        );
 
         // Deploy the hook to an address with the correct flags
         address flags = address(
@@ -116,9 +99,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
         deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
         hook = SuperDCAGauge(flags);
 
-        // Grant minter role to the hook
-        bytes32 MINTER_ROLE = keccak256("MINTER_ROLE");
-        dcaToken.grantRole(MINTER_ROLE, address(hook));
+        // No need to grant minter role as we'll use the mock's mint function directly
 
         // Mint tokens for testing
         weth.mint(address(this), 1000e18);
