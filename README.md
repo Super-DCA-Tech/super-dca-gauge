@@ -1,12 +1,15 @@
-# Super DCA Token & Gauge
+# Super DCA Gauge
+A system for developers looking to do a fair distribution of an inflationary token that is split 50/50 between the community (i.e., Uniswap V4 Liquidity Providers) and the developers.
 
-![Super DCA Token & Gauge](./images/UniswapHookEmitterBanner.jpg)
+![Super DCA Gauge](./images/UniswapHookEmitterBanner.jpg)
+<div align="center">
+Part of the Super DCA Framework
+<br> 
+<a href="https://github.com/Super-DCA-Tech/super-dca-token">🌐 Token</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-gauge">📊 Gauge</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-token">🏊 Pool</a>
+</div>
 
-### a.k.a. Uniswap Token Emitter Hook
-_The system for developers looking to do a fair distribution of an inflationary token that is split 50/50 between Uniswap V4 Liquidity Providers and the developers._
-
-## Super DCA uses Uniswap V4 Hooks for Token Distribution
-The `SuperDCAGauge` contract is a specialized Uniswap V4 pool hook designed to implement a staking and reward distribution system for `SuperDCAToken` tokens. It integrates with Uniswap V4 pools to distribute rewards during liquidity events. The primary functions of the `SuperDCAGauge` are:
+## Super DCA Gauge Distribution System Specifications
+The `SuperDCAGauge` contract is a specialized Uniswap V4 pool hook designed to implement a staking and reward distribution system for [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) tokens. It integrates with Uniswap V4 pools to distribute rewards during liquidity events. The primary functions of the `SuperDCAGauge` are:
 
 - **Before Liquidity Addition**: When liquidity is added to the pool, the hook:
   1. Updates the global reward index based on elapsed time and mint rate
@@ -23,8 +26,7 @@ Key features:
 - Users can stake SuperDCATokens for specific token pools to participate in rewards
 - Rewards for each pool are calculated based on staked amounts per pool, the total staked amount, the mint rate, and time elapsed
 
-
-### Distribution Process Diagram
+### Distribution
 ```mermaid
 stateDiagram-v2
     direction LR
@@ -47,15 +49,14 @@ stateDiagram-v2
 1. The `Liquidity Provider` adds/removes liquidity to the `ETH‑DCA Pool`
 2. The `ETH‑DCA Pool` calls the `SuperDCAGauge` hook's beforeModifyLiquidity function
 3. The `SuperDCAGauge` calculates rewards based on elapsed time and staked amounts
-4. The `SuperDCAToken` mints new tokens to the `SuperDCAGauge` based on the mint rate
+4. The [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) mints new tokens to the `SuperDCAGauge` based on the mint rate
 
 The `SuperDCAGauge` splits rewards 50/50 between:
 
    5. Pool (community share): Donated via Uniswap v4's donate function
    6. Developer: Transferred directly to developer address
 
-### Super DCA Gauge Distribution System Specifications
-
+### Staking
 The `SuperDCAGauge` contract implements a gauge-style staking and reward distribution system for Uniswap V4 pools. When users add or remove liquidity from eligible pools (e.g., 0.05% fee tier pools containing DCA token), rewards are distributed to the members of the pool using Uniswap v4 `donate` functionality. 
 
 
@@ -105,5 +106,5 @@ When a pool triggers a reward distribution, the `rewardIndex` is updated to the 
 
 | Contract | Address |
 | --- | --- |
-| `SuperDCAToken` | [0x99d051cb884995bBCe461d02123707CcD58B7ABE](https://unichain-sepolia.blockscout.com/address/0x99d051cb884995bBCe461d02123707CcD58B7ABE) |
+| [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) | [0x99d051cb884995bBCe461d02123707CcD58B7ABE](https://unichain-sepolia.blockscout.com/address/0x99d051cb884995bBCe461d02123707CcD58B7ABE) |
 | `SuperDCAGauge` | [0x26A7488224d2f336086dC0e4D5373B6F07F7aa00](https://unichain-sepolia.blockscout.com/address/0x26A7488224d2f336086dC0e4D5373B6F07F7aa00) |
