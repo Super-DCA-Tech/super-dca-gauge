@@ -17,10 +17,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
-    
+
     // Superchain ERC20 token is the same address on all Superchain's
     address public constant DCA_TOKEN = 0xdcA49B666A770201903973733b750e001Ca23fEc;
-
 
     struct HookConfiguration {
         address poolManager;
@@ -58,19 +57,15 @@ abstract contract DeployGaugeBase is Script {
             uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate
-        );
+        bytes memory constructorArgs =
+            abi.encode(hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate);
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
 
         // Deploy the hook using CREATE2 with the mined salt
         hook = new SuperDCAGauge{salt: salt}(
-            IPoolManager(hookConfig.poolManager),
-            DCA_TOKEN,
-            hookConfig.developerAddress,
-            hookConfig.mintRate
+            IPoolManager(hookConfig.poolManager), DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate
         );
 
         require(address(hook) == hookAddress, "Hook address mismatch");
