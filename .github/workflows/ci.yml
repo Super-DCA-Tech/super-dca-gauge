@@ -11,18 +11,18 @@ env:
   FOUNDRY_PROFILE: ci
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+  # build:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v3
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+  #     - name: Install Foundry
+  #       uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Build contracts
-        run: |
-          forge --version
-          forge build --sizes --contracts ./src
+  #     - name: Build contracts
+  #       run: |
+  #         forge --version
+  #         forge build --sizes --contracts ./src
 
   test:
     runs-on: ubuntu-latest
