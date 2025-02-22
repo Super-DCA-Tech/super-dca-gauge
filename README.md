@@ -11,6 +11,9 @@ Part of the Super DCA Framework
 ## Super DCA Gauge Distribution System Specifications
 The `SuperDCAGauge` contract is a specialized Uniswap V4 pool hook designed to implement a staking and reward distribution system for [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) tokens. It integrates with Uniswap V4 pools to distribute rewards during liquidity events. The primary functions of the `SuperDCAGauge` are:
 
+- **Before Initialize**: When a pool using the `SuperDCAGauge` hook is created, the hook:
+  1. Reverts if the pool is not using the `SuperDCAToken` token or has a fee tier other than 0.05%
+
 - **Before Liquidity Addition**: When liquidity is added to the pool, the hook:
   1. Updates the global reward index based on elapsed time and mint rate
   2. Calculates rewards for the pool based on staked amounts
@@ -101,10 +104,8 @@ WETH-DCA Reward = 400 DCA * (1 - 0) = 400 DCA
 When a pool triggers a reward distribution, the `rewardIndex` is updated to the current index and that pool's share of the rewards is minted and distributed to the pool and the developer. The other pools that did not trigger a reward distribution are not affected.
 
 ## Deployment Addresses
-
-### Unichain Sepolia
-
-| Contract | Address |
-| --- | --- |
-| [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) | [0x99d051cb884995bBCe461d02123707CcD58B7ABE](https://unichain-sepolia.blockscout.com/address/0x99d051cb884995bBCe461d02123707CcD58B7ABE) |
-| `SuperDCAGauge` | [0x26A7488224d2f336086dC0e4D5373B6F07F7aa00](https://unichain-sepolia.blockscout.com/address/0x26A7488224d2f336086dC0e4D5373B6F07F7aa00) |
+| Network | Contract | Address |
+| --- | --- | --- |
+| All | [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) | 0xdcA49B666A770201903973733b750e001Ca23fEc |
+| Base Sepolia | `SuperDCAGauge` | [0xcd7054d1Acbad26268d0902479807D6584F0aa00](https://sepolia.basescan.org/address/0xcd7054d1Acbad26268d0902479807D6584F0aa00) |
+| Unichain Sepolia | `SuperDCAGauge` | [0xc831c89eDF7bd6F115C7bA5c7d9737cFb48FEA00](https://unichain-sepolia.blockscout.com/address/0xc831c89eDF7bd6F115C7bA5c7d9737cFb48FEA00) |

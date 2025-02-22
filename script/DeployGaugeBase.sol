@@ -17,11 +17,14 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
+    
+    // Superchain ERC20 token is the same address on all Superchain's
+    address public constant DCA_TOKEN = 0xdcA49B666A770201903973733b750e001Ca23fEc;
+
 
     struct HookConfiguration {
         address poolManager;
         address developerAddress;
-        address dcaTokenAddress;
         uint256 mintRate;
     }
 
@@ -56,7 +59,7 @@ abstract contract DeployGaugeBase is Script {
 
         // Mine the salt that will produce a hook address with the correct flags
         bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager, hookConfig.dcaTokenAddress, hookConfig.developerAddress, hookConfig.mintRate
+            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate
         );
 
         (address hookAddress, bytes32 salt) =
@@ -65,7 +68,7 @@ abstract contract DeployGaugeBase is Script {
         // Deploy the hook using CREATE2 with the mined salt
         hook = new SuperDCAGauge{salt: salt}(
             IPoolManager(hookConfig.poolManager),
-            hookConfig.dcaTokenAddress,
+            DCA_TOKEN,
             hookConfig.developerAddress,
             hookConfig.mintRate
         );
@@ -75,7 +78,7 @@ abstract contract DeployGaugeBase is Script {
         console2.log("Deployed Hook:", address(hook));
 
         // Stake the ETH token to the hook with 600 DCA
-        IERC20(hookConfig.dcaTokenAddress).approve(address(hook), 1000 ether);
+        IERC20(DCA_TOKEN).approve(address(hook), 1000 ether);
         hook.stake(poolConfig.token0, 600 ether);
 
         console2.log("Staked 600 ETH to the hook");

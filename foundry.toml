@@ -12,3 +12,4 @@
 
 [rpc_endpoints]
   sepolia-unichain = "https://sepolia.unichain.org/"
+  sepolia-base = "https://sepolia.base.org/"
