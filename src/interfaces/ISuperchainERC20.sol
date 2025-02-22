@@ -9,4 +9,11 @@ interface ISuperchainERC20 {
      * @param amount_ The amount of tokens to mint
      */
     function mint(address to_, uint256 amount_) external;
+
+    /**
+     * @notice Grants a role to an account
+     * @param role The role being granted
+     * @param account The account receiving the role
+     */
+    function grantRole(bytes32 role, address account) external;
 }

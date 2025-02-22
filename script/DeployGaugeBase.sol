@@ -17,9 +17,14 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     // Superchain ERC20 token is the same address on all Superchain's
     address public constant DCA_TOKEN = 0xdcA49B666A770201903973733b750e001Ca23fEc;
+
+    // Initial sqrtPriceX96 for the pools
+    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 79228162514264337593543950336000000; // 1 DCA:1 USDC
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 4116816085950894041399904174080; // 1 DCA:2700 ETH
 
     struct HookConfiguration {
         address poolManager;
@@ -72,6 +77,10 @@ abstract contract DeployGaugeBase is Script {
 
         console2.log("Deployed Hook:", address(hook));
 
+        // Add the hook as a minter on the DCA token
+        ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
+        console2.log("Granted MINTER_ROLE to hook:", address(hook));
+
         // Stake the ETH token to the hook with 600 DCA
         IERC20(DCA_TOKEN).approve(address(hook), 1000 ether);
         hook.stake(poolConfig.token0, 600 ether);
@@ -82,6 +91,28 @@ abstract contract DeployGaugeBase is Script {
         hook.stake(poolConfig.token1, 400 ether);
 
         console2.log("Staked 400 USDC to the hook");
+
+        // Create pool keys for both USDC/DCA and ETH/DCA pools
+        PoolKey memory usdcPoolKey = PoolKey({
+            currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
+            currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
+            fee: 500,
+            tickSpacing: 60,
+            hooks: IHooks(hook)
+        });
+
+        PoolKey memory ethPoolKey = PoolKey({
+            currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
+            currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
+            fee: 500,
+            tickSpacing: 60,
+            hooks: IHooks(hook)
+        });
+
+        // Initialize both pools
+        IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
+        IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
+        console2.log("Initialized USDC/DCA and ETH/DCA Pools");
 
         vm.stopBroadcast();
 
