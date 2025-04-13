@@ -14,6 +14,10 @@ contract DeployGaugeUnichainSepolia is DeployGaugeBase {
     // Pool constants
     address public constant ETH = address(0); // Native ETH uses address(0)
     address public constant USDC = 0x31d0220469e10c4E71834a79b1f276d740d3768F; // Sepolia USDC
+    
+    // Initial prices
+    uint160 public constant INITIAL_SQRT_PRICE_ETH = 4116816085950894041399904174080; // 1:2700 ratio for ETH
+    uint160 public constant INITIAL_SQRT_PRICE_USDC = 79228162514264337593543950336000000; // 1:1 ratio for USDC
 
     function run() public override returns (SuperDCAGauge) {
         return super.run();
@@ -24,6 +28,11 @@ contract DeployGaugeUnichainSepolia is DeployGaugeBase {
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {
-        return PoolConfiguration({token0: ETH, token1: USDC});
+        return PoolConfiguration({
+            token0: ETH,
+            token1: USDC,
+            initialSqrtPrice0: INITIAL_SQRT_PRICE_ETH,
+            initialSqrtPrice1: INITIAL_SQRT_PRICE_USDC
+        });
     }
 }

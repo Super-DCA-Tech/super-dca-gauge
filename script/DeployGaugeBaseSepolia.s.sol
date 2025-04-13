@@ -11,9 +11,13 @@ contract DeployGaugeBaseSepolia is DeployGaugeBase {
     address public constant DEVELOPER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
-    // Pool constants
-    address public constant ETH = address(0); // Native ETH uses address(0)
-    address public constant USDC = 0x036CbD53842c5426634e7929541eC2318f3dCF7e; // Sepolia USDC
+    // Pool constants, use two stablecoins (1:1) for keeping the math easier on testnet
+    address public constant FUSDC = 0x6B0dacea6a72E759243c99Eaed840DEe9564C194; // Fake USDC from SF
+    address public constant FDAI = 0x6b008BAc0e5846cB5d9Ca02ca0e801fCbF88B6f9; // Fake DAI from SF
+    
+    // Initial prices (1:1 ratio since both are stablecoins)
+    uint160 public constant INITIAL_SQRT_PRICE_FUSDC = 79228162514264337593543950336;
+    uint160 public constant INITIAL_SQRT_PRICE_FDAI = 79228162514264337593543950336;
 
     function run() public override returns (SuperDCAGauge) {
         return super.run();
@@ -24,6 +28,11 @@ contract DeployGaugeBaseSepolia is DeployGaugeBase {
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {
-        return PoolConfiguration({token0: ETH, token1: USDC});
+        return PoolConfiguration({
+            token0: FUSDC, 
+            token1: FDAI,
+            initialSqrtPrice0: INITIAL_SQRT_PRICE_FUSDC,
+            initialSqrtPrice1: INITIAL_SQRT_PRICE_FDAI
+        });
     }
 }
