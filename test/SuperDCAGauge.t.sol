@@ -641,3 +641,62 @@ contract RewardsTest is SuperDCAGaugeTest {
         assertEq(dcaToken.balanceOf(developer), initialDevBalance, "No rewards should be distributed with zero stake");
     }
 }
+
+contract AccessControlTest is SuperDCAGaugeTest {
+    address managerUser;
+    address nonManagerUser = makeAddr("nonManagerUser");
+    address newManagerUser = makeAddr("newManagerUser");
+
+    bytes4 internal constant ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR =
+        bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)"));
+
+    function setUp() public override {
+        super.setUp();
+        managerUser = developer;
+        vm.assume(!hook.hasRole(hook.MANAGER_ROLE(), nonManagerUser));
+        vm.assume(!hook.hasRole(hook.DEFAULT_ADMIN_ROLE(), nonManagerUser));
+        vm.assume(!hook.hasRole(hook.MANAGER_ROLE(), newManagerUser));
+    }
+
+    function test_Should_AllowManagerToSetMintRate() public {
+        uint256 newMintRate = 200;
+
+        vm.prank(managerUser);
+        hook.setMintRate(newMintRate);
+
+        assertEq(hook.mintRate(), newMintRate, "Mint rate should be updated by manager");
+    }
+
+    function test_RevertWhen_NonManagerSetsMintRate() public {
+        uint256 newMintRate = 200;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
+        );
+        vm.prank(nonManagerUser);
+        hook.setMintRate(newMintRate);
+    }
+
+    function test_Should_AllowAdminToUpdateManager() public {
+        address currentAdmin = address(this);
+
+        assertTrue(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Initial manager role incorrect");
+        assertFalse(hook.hasRole(hook.MANAGER_ROLE(), newManagerUser), "New manager should not have role initially");
+
+        vm.prank(currentAdmin);
+        hook.updateManager(managerUser, newManagerUser);
+
+        assertFalse(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Old manager should lose role");
+        assertTrue(hook.hasRole(hook.MANAGER_ROLE(), newManagerUser), "New manager should gain role");
+    }
+
+    function test_RevertWhen_NonAdminUpdatesManager() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(nonManagerUser);
+        hook.updateManager(managerUser, newManagerUser);
+    }
+}

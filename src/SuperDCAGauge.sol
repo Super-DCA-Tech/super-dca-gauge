@@ -12,6 +12,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
  * @title SuperDCAGauge
@@ -28,15 +29,17 @@ import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
  * Reward calculation:
  * - Global reward index increases based on time and mint rate
  * - Individual rewards = staked_amount * (current_index - last_claim_index)
- * - Distribution: 50% to pool (community), 50% to developer
+ * - Distribution: 50% to pools (community), 50% to developer
+ * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is BaseHook {
+contract SuperDCAGauge is BaseHook, AccessControl {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // Constants
     uint256 public constant POOL_FEE = 500;
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
      * @notice Information about a token's staking and rewards
@@ -86,6 +89,11 @@ contract SuperDCAGauge is BaseHook {
         developerAddress = _developerAddress;
         mintRate = _mintRate;
         lastMinted = block.timestamp;
+
+        // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        // Grant the developer the manager role
+        _grantRole(MANAGER_ROLE, _developerAddress);
     }
 
     /**
@@ -351,5 +359,23 @@ contract SuperDCAGauge is BaseHook {
         }
 
         return (info.stakedAmount * (currentIndex - info.lastRewardIndex)) / 1e18;
+    }
+
+    /**
+     * @notice Allows the manager to update the mint rate.
+     * @param newMintRate The new rate at which SuperDCATokens are minted per second.
+     */
+    function setMintRate(uint256 newMintRate) external onlyRole(MANAGER_ROLE) {
+        mintRate = newMintRate;
+    }
+
+    /**
+     * @notice Allows the admin to update the manager role.
+     * @param oldManager The address of the current manager to revoke
+     * @param newManager The address of the new manager to grant the role to
+     */
+    function updateManager(address oldManager, address newManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        revokeRole(MANAGER_ROLE, oldManager);
+        grantRole(MANAGER_ROLE, newManager);
     }
 }
