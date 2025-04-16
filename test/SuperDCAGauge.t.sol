@@ -12,12 +12,15 @@ import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Test} from "forge-std/Test.sol";
-import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 
 contract SuperDCAGaugeTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
+    using LPFeeLibrary for uint24;
 
     SuperDCAGauge hook;
     MockERC20Token public dcaToken;
@@ -31,7 +34,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
     // --------------------------------------------
 
     // Creates a pool key with the tokens ordered by address.
-    function _createPoolKey(address tokenA, address tokenB, uint24 fee) internal view returns (PoolKey memory) {
+    function _createPoolKey(address tokenA, address tokenB, uint24 fee) internal view returns (PoolKey memory key) {
         return tokenA < tokenB
             ? PoolKey({
                 currency0: Currency.wrap(tokenA),
@@ -89,11 +92,15 @@ contract SuperDCAGaugeTest is Test, Deployers {
 
         // Deploy core Uniswap V4 contracts
         deployFreshManagerAndRouters();
+        // TODO: REF
+        Deployers.deployMintAndApprove2Currencies(); // currency0 = weth, currency1 = dcaToken
 
         // Deploy the hook to an address with the correct flags
         address flags = address(
-            uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG)
-                ^ (0x4242 << 144)
+            uint160(
+                Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                    | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG
+            ) ^ (0x4242 << 144)
         );
         bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate);
         deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
@@ -106,7 +113,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
         dcaToken.mint(address(this), 1000e18);
 
         // Create the pool key using the helper (fee always set to 500 here)
-        key = _createPoolKey(address(weth), address(dcaToken), 500);
+        key = _createPoolKey(address(weth), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
 
         // Initialize the pool
         poolId = key.toId();
@@ -135,7 +142,7 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertTrue(permissions.beforeRemoveLiquidity, "beforeRemoveLiquidity should be enabled");
         assertFalse(permissions.afterAddLiquidity, "afterAddLiquidity should be disabled");
         assertFalse(permissions.afterRemoveLiquidity, "afterRemoveLiquidity should be disabled");
-        assertFalse(permissions.beforeSwap, "beforeSwap should be disabled");
+        assertTrue(permissions.beforeSwap, "beforeSwap should be disabled");
         assertFalse(permissions.afterSwap, "afterSwap should be disabled");
         assertFalse(permissions.beforeDonate, "beforeDonate should be disabled");
         assertFalse(permissions.afterDonate, "afterDonate should be disabled");
@@ -143,48 +150,46 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertFalse(permissions.afterSwapReturnDelta, "afterSwapReturnDelta should be disabled");
         assertFalse(permissions.afterAddLiquidityReturnDelta, "afterAddLiquidityReturnDelta should be disabled");
         assertFalse(permissions.afterRemoveLiquidityReturnDelta, "afterRemoveLiquidityReturnDelta should be disabled");
-    }
-}
-
-contract HookPermissionsTest is SuperDCAGaugeTest {
-    function test_hookPermissions() public view {
-        Hooks.Permissions memory permissions = hook.getHookPermissions();
-        assertTrue(permissions.beforeAddLiquidity, "beforeAddLiquidity should be enabled");
-        assertTrue(permissions.beforeRemoveLiquidity, "beforeRemoveLiquidity should be enabled");
-        assertFalse(permissions.afterAddLiquidity, "afterAddLiquidity should be disabled");
-        assertFalse(permissions.afterRemoveLiquidity, "afterRemoveLiquidity should be disabled");
-        assertFalse(permissions.beforeSwap, "beforeSwap should be disabled");
-        assertFalse(permissions.afterSwap, "afterSwap should be disabled");
-        assertFalse(permissions.beforeDonate, "beforeDonate should be disabled");
-        assertFalse(permissions.afterDonate, "afterDonate should be disabled");
-        assertFalse(permissions.beforeSwapReturnDelta, "beforeSwapReturnDelta should be disabled");
-        assertFalse(permissions.afterSwapReturnDelta, "afterSwapReturnDelta should be disabled");
-        assertFalse(permissions.afterAddLiquidityReturnDelta, "afterAddLiquidityReturnDelta should be disabled");
-        assertFalse(permissions.afterRemoveLiquidityReturnDelta, "afterRemoveLiquidityReturnDelta should be disabled");
+        assertTrue(permissions.afterInitialize, "afterInitialize should be enabled");
     }
 }
 
 contract BeforeInitializeTest is SuperDCAGaugeTest {
     function test_beforeInitialize() public {
-        // Create a pool key with correct fee (500) and SuperDCAToken
-        PoolKey memory correctKey = _createPoolKey(address(0xBEEF), address(dcaToken), 500);
+        // Create a pool key with dynamic fee flag and SuperDCAToken
+        PoolKey memory correctKey = _createPoolKey(address(0xBEEF), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
         manager.initialize(correctKey, SQRT_PRICE_1_1);
-    }
-
-    function test_beforeInitialize_revert_wrongFee() public {
-        // Create a pool key with fee != 500 (use fee 100)
-        PoolKey memory wrongFeeKey = _createPoolKey(address(weth), address(dcaToken), 100);
-        // TODO: Handle verify WrappedErrors
-        vm.expectRevert();
-        manager.initialize(wrongFeeKey, SQRT_PRICE_1_1);
     }
 
     function test_beforeInitialize_revert_wrongToken() public {
         // Create a pool key with two tokens that aren't SuperDCAToken
-        PoolKey memory wrongTokenKey = _createPoolKey(address(weth), address(0xBEEF), 500);
+        PoolKey memory wrongTokenKey = _createPoolKey(address(weth), address(0xBEEF), LPFeeLibrary.DYNAMIC_FEE_FLAG);
         // TODO: Handle verify WrappedErrors
         vm.expectRevert();
         manager.initialize(wrongTokenKey, SQRT_PRICE_1_1);
+    }
+}
+
+contract AfterInitializeTest is SuperDCAGaugeTest {
+    function test_afterInitialize_SuccessWithDynamicFee() public {
+        // Create a new key specifically for this test to avoid state conflicts
+        MockERC20Token tokenOther = new MockERC20Token("Other", "OTH", 18);
+        PoolKey memory dynamicKey =
+            _createPoolKey(address(tokenOther), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
+
+        // Expect no revert
+        manager.initialize(dynamicKey, SQRT_PRICE_1_1);
+    }
+
+    function test_RevertWhen_InitializingWithStaticFee() public {
+        // Create a new key specifically for this test
+        MockERC20Token tokenOther = new MockERC20Token("Other", "OTH", 18);
+        uint24 staticFee = 500;
+        PoolKey memory staticKey = _createPoolKey(address(tokenOther), address(dcaToken), staticFee);
+
+        // Expect revert from the afterInitialize hook
+        vm.expectRevert();
+        manager.initialize(staticKey, SQRT_PRICE_1_1);
     }
 }
 
@@ -444,7 +449,7 @@ contract RewardsTest is SuperDCAGaugeTest {
         usdc.mint(address(this), 1000e6);
 
         // Create USDC pool
-        usdcKey = _createPoolKey(address(usdc), address(dcaToken), 500);
+        usdcKey = _createPoolKey(address(usdc), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
         manager.initialize(usdcKey, SQRT_PRICE_1_1);
 
         // Approve USDC for liquidity
@@ -700,3 +705,165 @@ contract AccessControlTest is SuperDCAGaugeTest {
         hook.updateManager(managerUser, newManagerUser);
     }
 }
+
+contract SetFeeTest is AccessControlTest {
+    uint24 newInternalFee = 600;
+    uint24 newExternalFee = 700;
+
+    function test_Should_AllowManagerToSetInternalFee() public {
+        uint24 initialExternalFee = hook.externalFee();
+        uint24 initialInternalFee = hook.internalFee(); // Get the old fee
+
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.FeeUpdated(true, initialInternalFee, newInternalFee); // Add old fee
+        hook.setFee(true, newInternalFee);
+
+        assertEq(hook.internalFee(), newInternalFee, "Internal fee should be updated");
+        assertEq(hook.externalFee(), initialExternalFee, "External fee should remain unchanged");
+    }
+
+    function test_Should_AllowManagerToSetExternalFee() public {
+        uint24 initialInternalFee = hook.internalFee();
+        uint24 initialExternalFee = hook.externalFee(); // Get the old fee
+
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.FeeUpdated(false, initialExternalFee, newExternalFee); // Add old fee
+        hook.setFee(false, newExternalFee);
+
+        assertEq(hook.externalFee(), newExternalFee, "External fee should be updated");
+        assertEq(hook.internalFee(), initialInternalFee, "Internal fee should remain unchanged");
+    }
+
+    function test_RevertWhen_NonManagerSetsInternalFee() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
+        );
+        vm.prank(nonManagerUser);
+        hook.setFee(true, newInternalFee);
+    }
+
+    function test_RevertWhen_NonManagerSetsExternalFee() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
+        );
+        vm.prank(nonManagerUser);
+        hook.setFee(false, newExternalFee);
+    }
+}
+
+contract SetInternalAddressTest is AccessControlTest {
+    address internalUser = makeAddr("internalUser");
+
+    function test_Should_AllowManagerToSetInternalAddressTrue() public {
+        assertFalse(hook.isInternalAddress(internalUser), "User should not be internal initially");
+
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.InternalAddressUpdated(internalUser, true);
+        hook.setInternalAddress(internalUser, true);
+
+        assertTrue(hook.isInternalAddress(internalUser), "User should be marked as internal");
+    }
+
+    function test_Should_AllowManagerToSetInternalAddressFalse() public {
+        // First set to true
+        vm.prank(managerUser);
+        hook.setInternalAddress(internalUser, true);
+        assertTrue(hook.isInternalAddress(internalUser), "User should be internal before setting false");
+
+        // Now set to false
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.InternalAddressUpdated(internalUser, false);
+        hook.setInternalAddress(internalUser, false);
+
+        assertFalse(hook.isInternalAddress(internalUser), "User should be marked as not internal");
+    }
+
+    function test_RevertWhen_NonManagerSetsInternalAddress() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
+        );
+        vm.prank(nonManagerUser);
+        hook.setInternalAddress(internalUser, true);
+    }
+
+    function test_RevertWhen_SettingZeroAddressAsInternal() public {
+        vm.expectRevert("Cannot set zero address");
+        vm.prank(managerUser);
+        hook.setInternalAddress(address(0), true);
+    }
+}
+
+// Note: These are commented out since the `msgSender` function is not
+// implemented in the PoolSwapTest contract.
+// TODO: https://github.com/Uniswap/v4-core/issues/967
+//
+// contract BeforeSwapTest is SuperDCAGaugeTest {
+//     using SafeCast for uint256;
+
+//     function setUp() public override {
+//         super.setUp();
+
+//         // Add initial liquidity to the pool
+//         _modifyLiquidity(key, 100e18); // Add substantial liquidity
+//     }
+
+//     // Helper function for swapping dcaToken for weth using poolManager directly
+//     function _swapDCAForWETH_PoolManager(address user, uint256 amountIn) internal returns (BalanceDelta) {
+//         vm.startPrank(user);
+
+//         // 1. User sends input token (dcaToken) to the poolManager
+//         dcaToken.transfer(address(manager), amountIn);
+
+//         // 2. User calls swap on poolManager
+//         // Prank as user again for the swap call itself
+//         BalanceDelta delta = swap(key, false, int256(amountIn), ZERO_BYTES);
+
+//         vm.stopPrank();
+
+//         return delta;
+//     }
+
+//     function test_BeforeSwap_AppliesFeesCorrectly_ForInternalUser() public {
+//         // Mark internalUser
+//         vm.prank(developer);
+//         hook.setInternalAddress(address(this), true);
+
+//         uint256 currency1Before = Currency.wrap(address(weth)).balanceOfSelf();
+
+//         // Setup and swap
+//         bool zeroForOne = true;
+//         int256 amountSpecified = -1e10;
+//         swapRouter.setMsgSender(address(this));
+//         dcaToken.approve(address(swapRouter), 1e10);
+//         swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
+
+//         uint256 currency1After = Currency.wrap(address(weth)).balanceOfSelf();
+
+//         // the fee is 0.05% so we should receive approximately 0.9995 of currency1
+//         assertEq(currency1After - currency1Before, uint256(0.9995e10 - 1));
+//     }
+
+//     function test_BeforeSwap_AppliesFeesCorrectly_ForExternalUser() public {
+//         // Mark externalUser
+//         vm.prank(developer);
+//         hook.setInternalAddress(address(this), false);
+
+//         uint256 currency1Before = Currency.wrap(address(weth)).balanceOfSelf();
+
+//         // Setup and swap
+//         int256 amountSpecified = -1e10;
+//         bool zeroForOne = true;
+//         swapRouter.setMsgSender(address(this));
+//         dcaToken.approve(address(swapRouter), 1e10);
+//         swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
+
+//         uint256 currency1After = Currency.wrap(address(weth)).balanceOfSelf();
+
+//         // the fee is 0.50% so we should receive approximately 0.9950 of currency1
+//         assertEq(currency1After - currency1Before, uint256(0.995e10 - 1));
+//     }
+// }
