@@ -2,17 +2,19 @@
 pragma solidity ^0.8.22;
 
 import {BaseHook} from "v4-periphery/utils/BaseHook.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {Hooks, IHooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {Pool} from "@uniswap/v4-core/src/libraries/Pool.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
+import {IMsgSender} from "./interfaces/IMsgSender.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
 /**
  * @title SuperDCAGauge
@@ -33,12 +35,14 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
 contract SuperDCAGauge is BaseHook, AccessControl {
+    using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // Constants
-    uint256 public constant POOL_FEE = 500;
+    uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
+    uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -54,8 +58,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     // State
     address public superDCAToken;
     address public developerAddress;
+    uint24 public internalFee;
+    uint24 public externalFee;
     uint256 public mintRate;
     uint256 public lastMinted;
+    mapping(address => bool) public isInternalAddress;
 
     // Reward tracking
     uint256 public totalStakedAmount;
@@ -68,8 +75,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     event Staked(address indexed token, address indexed user, uint256 amount);
     event Unstaked(address indexed token, address indexed user, uint256 amount);
     event RewardIndexUpdated(uint256 newIndex);
+    event InternalAddressUpdated(address indexed user, bool isInternal);
+    event FeeUpdated(bool indexed isInternal, uint24 oldFee, uint24 newFee);
 
     // Errors
+    error NotDynamicFee();
     error InsufficientBalance();
     error ZeroAmount();
     error InvalidPoolFee();
@@ -87,6 +97,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     {
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
+        internalFee = INTERNAL_POOL_FEE;
+        externalFee = EXTERNAL_POOL_FEE;
         mintRate = _mintRate;
         lastMinted = block.timestamp;
 
@@ -103,12 +115,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: true,
-            afterInitialize: false,
+            afterInitialize: true,
             beforeAddLiquidity: true,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: true,
             afterRemoveLiquidity: false,
-            beforeSwap: false,
+            beforeSwap: true,
             afterSwap: false,
             beforeDonate: false,
             afterDonate: false,
@@ -134,14 +146,29 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         override
         returns (bytes4)
     {
-        // Validate pool has SuperDCAToken and correct fee
-        if (key.fee != POOL_FEE) {
-            revert InvalidPoolFee();
-        }
         if (superDCAToken != Currency.unwrap(key.currency0) && superDCAToken != Currency.unwrap(key.currency1)) {
             revert PoolMustIncludeSuperDCAToken();
         }
         return BaseHook.beforeInitialize.selector;
+    }
+
+    /**
+     * @notice Ensures the pool is initialized with a dynamic fee.
+     * @dev Reverts if the pool's fee is not set to the dynamic fee flag.
+     * param sender The address initiating the initialization (unused).
+     * @param key The pool key containing currency pair and fee information.
+     * param sqrtPriceX96 The initial sqrt price of the pool (unused).
+     * param tick The initial tick of the pool (unused).
+     * @return The function selector.
+     */
+    function _afterInitialize(address, /* sender */ PoolKey calldata key, uint160, /* sqrtPriceX96 */ int24 /* tick */ )
+        internal
+        pure
+        override
+        returns (bytes4)
+    {
+        if (!key.fee.isDynamicFee()) revert NotDynamicFee();
+        return this.afterInitialize.selector;
     }
 
     /**
@@ -233,6 +260,17 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     ) internal override returns (bytes4) {
         _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeRemoveLiquidity.selector;
+    }
+
+    function _beforeSwap(
+        address sender,
+        PoolKey calldata, /* key */
+        IPoolManager.SwapParams calldata, /* params */
+        bytes calldata /* hookData */
+    ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
+        address swapper = IMsgSender(sender).msgSender();
+        uint24 fee = isInternalAddress[swapper] ? internalFee : externalFee;
+        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
     /**
@@ -377,5 +415,33 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     function updateManager(address oldManager, address newManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
         revokeRole(MANAGER_ROLE, oldManager);
         grantRole(MANAGER_ROLE, newManager);
+    }
+
+    /**
+     * @notice Allows the manager to update the internal or external fee.
+     * @param _isInternal If true, updates internalFee, otherwise updates externalFee.
+     * @param _newFee The new fee value (must be uint24).
+     */
+    function setFee(bool _isInternal, uint24 _newFee) external onlyRole(MANAGER_ROLE) {
+        uint24 oldFee;
+        if (_isInternal) {
+            oldFee = internalFee;
+            internalFee = _newFee;
+        } else {
+            oldFee = externalFee;
+            externalFee = _newFee;
+        }
+        emit FeeUpdated(_isInternal, oldFee, _newFee);
+    }
+
+    /**
+     * @notice Allows the manager to mark or unmark an address as internal.
+     * @param _user The address to update.
+     * @param _isInternal True to mark as internal, false to unmark.
+     */
+    function setInternalAddress(address _user, bool _isInternal) external onlyRole(MANAGER_ROLE) {
+        require(_user != address(0), "Cannot set zero address");
+        isInternalAddress[_user] = _isInternal;
+        emit InternalAddressUpdated(_user, _isInternal);
     }
 }
