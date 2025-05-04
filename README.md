@@ -5,7 +5,7 @@ A system for developers looking to do a fair distribution of an inflationary tok
 <div align="center">
 Part of the Super DCA Framework
 <br> 
-<a href="https://github.com/Super-DCA-Tech/super-dca-token">🌐 Token</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-gauge">📊 Gauge</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-token">🏊 Pool</a>
+<a href="https://github.com/Super-DCA-Tech/super-dca-token">🌐 Token</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-gauge">📊 Gauge</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-contracts">🏊 Pool</a>
 </div>
 
 ## Super DCA Gauge Distribution System Specifications
@@ -106,6 +106,6 @@ When a pool triggers a reward distribution, the `rewardIndex` is updated to the 
 ## Deployment Addresses
 | Network | Contract | Address |
 | --- | --- | --- |
-| All | [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) | 0xdcA49B666A770201903973733b750e001Ca23fEc |
-| Base Sepolia | `SuperDCAGauge` | [0x0e2F3f48d8942279D7BcC04A04B2CE54496Cea00](https://sepolia.basescan.org/address/0x0e2F3f48d8942279D7BcC04A04B2CE54496Cea00) |
-| Unichain Sepolia | `SuperDCAGauge` | [0xce3Ea4B31DD03dFCD81e09Ed1cCfE93a77C4ea00](https://unichain-sepolia.blockscout.com/address/0xce3Ea4B31DD03dFCD81e09Ed1cCfE93a77C4ea00) |
+| All | [Super DCA Token](https://github.com/Super-DCA-Tech/liquidity-network) | 0xdCA0423d8a8b0e6c9d7756C16Ed73f36f1BadF54 |
+| Base Sepolia | `SuperDCAGauge` | [0x741810C3Fb97194dEcB045E45b9920680E1d7a80](https://sepolia.basescan.org/address/0x741810C3Fb97194dEcB045E45b9920680E1d7a80) |
+| Unichain Sepolia | `SuperDCAGauge` | [0xEC67C9D1145aBb0FBBc791B657125718381DBa80](https://unichain-sepolia.blockscout.com/address/0xEC67C9D1145aBb0FBBc791B657125718381DBa80) |

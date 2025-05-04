@@ -21,11 +21,11 @@ abstract contract DeployGaugeBase is Script {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     // Superchain ERC20 token is the same address on all Superchain's
-    address public constant DCA_TOKEN = 0xdcA49B666A770201903973733b750e001Ca23fEc;
+    address public constant DCA_TOKEN = 0xdCA0423d8a8b0e6c9d7756C16Ed73f36f1BadF54;
 
     // Initial sqrtPriceX96 for the pools
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 79228162514264337593543950336000000; // 1 DCA:1 USDC
-    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 4116816085950894041399904174080; // 1 DCA:2700 ETH
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 3266660825699135604008626946048; // 1 DCA:2700 ETH
 
     struct HookConfiguration {
         address poolManager;
@@ -59,8 +59,10 @@ abstract contract DeployGaugeBase is Script {
         PoolConfiguration memory poolConfig = getPoolConfiguration();
 
         // Deploy hook with correct flags using HookMiner
-        uint160 flags =
-            uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG
+        );
 
         // Mine the salt that will produce a hook address with the correct flags
         bytes memory constructorArgs =
@@ -79,6 +81,9 @@ abstract contract DeployGaugeBase is Script {
         console2.log("Deployed Hook:", address(hook));
 
         // Add the hook as a minter on the DCA token
+        console2.log("DCA Token:", DCA_TOKEN);
+        console2.log("Hook:", address(hook));
+        console2.log("Deployer:", vm.addr(deployerPrivateKey));
         ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
         console2.log("Granted MINTER_ROLE to hook:", address(hook));
 

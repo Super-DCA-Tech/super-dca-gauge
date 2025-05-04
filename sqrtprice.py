@@ -18,7 +18,7 @@ def calculate_sqrt_price(token0_reserve, token1_reserve, token0_decimals, token1
 
 # Example usage
 usdc_reserve = 1000000000000000000
-usdt_reserve = 2700000000000000000000
+usdt_reserve = 1700000000000000000000
 usdc_decimals = 18
 usdt_decimals = 18
 
