@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {SuperDCAGauge} from "../src/SuperDCAGauge.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
@@ -15,8 +15,11 @@ import {console2} from "forge-std/Test.sol";
 import {HookMiner} from "../test/utils/HookMiner.sol";
 import {ISuperchainERC20} from "../src/interfaces/ISuperchainERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 abstract contract DeployGaugeBase is Script {
+    using CurrencyLibrary for Currency;
+
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
     // bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
@@ -24,8 +27,8 @@ abstract contract DeployGaugeBase is Script {
     address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
-    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 79228162514264337593543950336000000; // 1 DCA:1 USDC
-    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 3266660825699135604008626946048; // 1 DCA:2700 ETH
+    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 63382530011411473593272369152; // 0.64 USDC/DCA
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 1272346076174334180452204544; // 0.0002579 WETH/DCA
 
     struct HookConfiguration {
         address poolManager;
@@ -88,13 +91,13 @@ abstract contract DeployGaugeBase is Script {
         // console2.log("Granted MINTER_ROLE to hook:", address(hook));
 
         // Stake the ETH token to the hook with 600 DCA
-        IERC20(DCA_TOKEN).approve(address(hook), 1000 ether);
-        hook.stake(poolConfig.token0, 600 ether);
+        IERC20(DCA_TOKEN).approve(address(hook), 100 ether);
+        hook.stake(poolConfig.token0, 60 ether);
 
         console2.log("Staked 600 ETH to the hook");
 
         // Stake the USDC token to the hook with 400 DCA
-        hook.stake(poolConfig.token1, 400 ether);
+        hook.stake(poolConfig.token1, 40 ether);
 
         console2.log("Staked 400 USDC to the hook");
 
@@ -136,8 +139,8 @@ abstract contract DeployGaugeBase is Script {
         }
 
         // Transfer ownership of the Super DCA token to the deployer
-        ISuperchainERC20(DCA_TOKEN).transferOwnership(vm.addr(deployerPrivateKey));
-        console2.log("Transferred Super DCA token ownership to deployer");
+        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
+        console2.log("Transferred Super DCA token ownership to hook");
 
         vm.stopBroadcast();
 
