@@ -33,6 +33,11 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/type
  * - Individual rewards = staked_amount * (current_index - last_claim_index)
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
+ *
+ * Beta Test Scaffolding:
+ * - The Super DCA Token is only mintable by the owner (changes in the future)
+ * - A MINTER role is added for the Superchain ERC20 version of the Super DCA Token
+ * - The developer address is set to superdca.eth
  */
 contract SuperDCAGauge is BaseHook, AccessControl {
     using LPFeeLibrary for uint24;
@@ -77,6 +82,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     event RewardIndexUpdated(uint256 newIndex);
     event InternalAddressUpdated(address indexed user, bool isInternal);
     event FeeUpdated(bool indexed isInternal, uint24 oldFee, uint24 newFee);
+    event SuperDCATokenOwnershipReturned(address indexed newOwner);
 
     // Errors
     error NotDynamicFee();
@@ -103,7 +109,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         lastMinted = block.timestamp;
 
         // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _developerAddress);
         // Grant the developer the manager role
         _grantRole(MANAGER_ROLE, _developerAddress);
     }
@@ -443,5 +449,16 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         require(_user != address(0), "Cannot set zero address");
         isInternalAddress[_user] = _isInternal;
         emit InternalAddressUpdated(_user, _isInternal);
+    }
+
+    /**
+     * @notice Returns the ownership of the Super DCA token back to the admin (DEFAULT_ADMIN_ROLE).
+     * @dev The gauge contract must currently be the owner of the token. After the call, the admin
+     *      (msg.sender) becomes the new owner. Can only be invoked by an account that has the
+     *      DEFAULT_ADMIN_ROLE on the gauge.
+     */
+    function returnSuperDCATokenOwnership() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        ISuperchainERC20(superDCAToken).transferOwnership(msg.sender);
+        emit SuperDCATokenOwnershipReturned(msg.sender);
     }
 }

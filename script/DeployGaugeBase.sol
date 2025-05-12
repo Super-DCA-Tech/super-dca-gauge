@@ -18,10 +18,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    // bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     // Superchain ERC20 token is the same address on all Superchain's
-    address public constant DCA_TOKEN = 0xdCA0423d8a8b0e6c9d7756C16Ed73f36f1BadF54;
+    address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 79228162514264337593543950336000000; // 1 DCA:1 USDC
@@ -80,12 +80,12 @@ abstract contract DeployGaugeBase is Script {
 
         console2.log("Deployed Hook:", address(hook));
 
-        // Add the hook as a minter on the DCA token
-        console2.log("DCA Token:", DCA_TOKEN);
-        console2.log("Hook:", address(hook));
-        console2.log("Deployer:", vm.addr(deployerPrivateKey));
-        ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
-        console2.log("Granted MINTER_ROLE to hook:", address(hook));
+        // // Add the hook as a minter on the DCA token
+        // console2.log("DCA Token:", DCA_TOKEN);
+        // console2.log("Hook:", address(hook));
+        // console2.log("Deployer:", vm.addr(deployerPrivateKey));
+        // ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
+        // console2.log("Granted MINTER_ROLE to hook:", address(hook));
 
         // Stake the ETH token to the hook with 600 DCA
         IERC20(DCA_TOKEN).approve(address(hook), 1000 ether);
@@ -98,27 +98,46 @@ abstract contract DeployGaugeBase is Script {
 
         console2.log("Staked 400 USDC to the hook");
 
-        // Create pool keys for both USDC/DCA and ETH/DCA pools
-        PoolKey memory usdcPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
-            currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
-            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 60,
-            hooks: IHooks(hook)
-        });
+        // // Create pool keys for both USDC/DCA and ETH/DCA pools
+        // PoolKey memory usdcPoolKey = PoolKey({
+        //     currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
+        //     currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
+        //     fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+        //     tickSpacing: 60,
+        //     hooks: IHooks(hook)
+        // });
 
-        PoolKey memory ethPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
-            currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
-            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 60,
-            hooks: IHooks(hook)
-        });
+        // PoolKey memory ethPoolKey = PoolKey({
+        //     currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
+        //     currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
+        //     fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+        //     tickSpacing: 60,
+        //     hooks: IHooks(hook)
+        // });
 
-        // Initialize both pools
-        IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
-        IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
-        console2.log("Initialized USDC/DCA and ETH/DCA Pools");
+        // // Initialize both pools
+        // IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
+        // IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
+        // console2.log("Initialized USDC/DCA and ETH/DCA Pools");
+
+        console2.log("DCA Token:", DCA_TOKEN);
+        console2.log("Hook:", address(hook));
+        console2.log("Deployer:", vm.addr(deployerPrivateKey));
+
+        // Transfer ownership of the Super DCA token to the hook so it can mint tokens
+        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
+        console2.log("Transferred Super DCA token ownership to hook");
+
+        // Recover the Super DCA token ownership (for sanity)
+        hook.returnSuperDCATokenOwnership();
+        console2.log("Recovered Super DCA token ownership");
+        if (ISuperchainERC20(DCA_TOKEN).owner() != vm.addr(deployerPrivateKey)) {
+            revert("Hook should own the token");
+        }
+
+        // Transfer ownership of the Super DCA token to the deployer
+        ISuperchainERC20(DCA_TOKEN).transferOwnership(vm.addr(deployerPrivateKey));
+        console2.log("Transferred Super DCA token ownership to deployer");
 
         vm.stopBroadcast();
 

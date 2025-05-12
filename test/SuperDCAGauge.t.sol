@@ -112,6 +112,9 @@ contract SuperDCAGaugeTest is Test, Deployers {
         weth.mint(address(this), 1000e18);
         dcaToken.mint(address(this), 1000e18);
 
+        // Transfer ownership of the DCA token to the hook so the gauge can perform minting operations
+        dcaToken.transferOwnership(address(hook));
+
         // Create the pool key using the helper (fee always set to 500 here)
         key = _createPoolKey(address(weth), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
 
@@ -795,6 +798,32 @@ contract SetInternalAddressTest is AccessControlTest {
         vm.prank(managerUser);
         hook.setInternalAddress(address(0), true);
     }
+}
+
+contract ReturnSuperDCATokenOwnershipTest is AccessControlTest {
+    function test_Should_ReturnOwnershipToAdmin() public {
+        // Precondition: hook should own the token
+        assertEq(dcaToken.owner(), address(hook), "Hook should own the token before return");
+
+        // Call as admin (address(this))
+        hook.returnSuperDCATokenOwnership();
+
+        // Postcondition: admin owns the token
+        assertEq(dcaToken.owner(), address(this), "Admin should own the token after return");
+    }
+
+    function test_RevertWhen_NonAdminCalls() public {
+        address nonAdmin = makeAddr("nonAdmin");
+
+        vm.startPrank(nonAdmin);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonAdmin, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        hook.returnSuperDCATokenOwnership();
+        vm.stopPrank();
+    }   
 }
 
 // Note: These are commented out since the `msgSender` function is not
