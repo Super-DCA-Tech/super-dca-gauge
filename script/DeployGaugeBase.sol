@@ -27,8 +27,8 @@ abstract contract DeployGaugeBase is Script {
     address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
-    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 63382530011411473593272369152; // 0.64 USDC/DCA
-    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 1272346076174334180452204544; // 0.0002579 WETH/DCA
+    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 99818102307311103866771172651308976963584; // 0.64 USDC/DCA
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5452371394062524740239127216128; // 4736 DCA / ETH
 
     struct HookConfiguration {
         address poolManager;
@@ -90,38 +90,37 @@ abstract contract DeployGaugeBase is Script {
         // ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
         // console2.log("Granted MINTER_ROLE to hook:", address(hook));
 
-        // Stake the ETH token to the hook with 600 DCA
         IERC20(DCA_TOKEN).approve(address(hook), 100 ether);
-        hook.stake(poolConfig.token0, 60 ether);
 
-        console2.log("Staked 600 ETH to the hook");
+        // Stake the ETH token to the hook with 600 DCA
+        hook.stake(poolConfig.token0, 60 ether);
+        console2.log("Staked 60 DCA to the ETH/DCA pool");
 
         // Stake the USDC token to the hook with 400 DCA
         hook.stake(poolConfig.token1, 40 ether);
+        console2.log("Staked 40 DCA to the USDC/DCA pool");
 
-        console2.log("Staked 400 USDC to the hook");
+        // Create pool keys for both USDC/DCA and ETH/DCA pools
+        PoolKey memory usdcPoolKey = PoolKey({
+            currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
+            currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 2,
+            hooks: IHooks(hook)
+        });
 
-        // // Create pool keys for both USDC/DCA and ETH/DCA pools
-        // PoolKey memory usdcPoolKey = PoolKey({
-        //     currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
-        //     currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
-        //     fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-        //     tickSpacing: 60,
-        //     hooks: IHooks(hook)
-        // });
+        PoolKey memory ethPoolKey = PoolKey({
+            currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
+            currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 2,
+            hooks: IHooks(hook)
+        });
 
-        // PoolKey memory ethPoolKey = PoolKey({
-        //     currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
-        //     currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
-        //     fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-        //     tickSpacing: 60,
-        //     hooks: IHooks(hook)
-        // });
-
-        // // Initialize both pools
-        // IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
-        // IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
-        // console2.log("Initialized USDC/DCA and ETH/DCA Pools");
+        // Initialize both pools
+        IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
+        IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
+        console2.log("Initialized USDC/DCA and ETH/DCA Pools");
 
         console2.log("DCA Token:", DCA_TOKEN);
         console2.log("Hook:", address(hook));
