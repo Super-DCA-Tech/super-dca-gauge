@@ -243,6 +243,37 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
             dcaToken.balanceOf(developer), initialDevBal, "No rewards should be distributed with zero elapsed time"
         );
     }
+
+    // --------------------------------------------------
+    // Mint failure handling
+    // --------------------------------------------------
+
+    function test_shouldNotRevert_WhenMintFails_OnAddLiquidity() public {
+        // Stake so that rewards can accrue
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+
+        // Add initial liquidity to create the pool
+        _modifyLiquidity(key, 1e18);
+
+        // Advance time so rewards are due
+        uint256 startTime = hook.lastMinted();
+        uint256 elapsed = 20;
+        vm.warp(startTime + elapsed);
+
+        // Remove minting permissions from the gauge so that subsequent mint calls revert
+        // The test contract is the DEFAULT_ADMIN_ROLE, so it can call this helper.
+        hook.returnSuperDCATokenOwnership();
+
+        // Expect no revert even though the internal mint will fail
+        _modifyLiquidity(key, 1e18);
+
+        // Developer balance should remain unchanged
+        assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero when mint fails");
+
+        // lastMinted should still update
+        assertEq(hook.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
+    }
 }
 
 contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
@@ -279,6 +310,37 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         // Note: Can't figure out how to check the donation fees got to the pool
         // so I will verify this on the testnet work.
         // TODO: Verify this on testnet work.
+    }
+
+    // --------------------------------------------------
+    // Mint failure handling
+    // --------------------------------------------------
+
+    function test_shouldNotRevert_WhenMintFails_OnRemoveLiquidity() public {
+        // Stake and add liquidity first
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+        _modifyLiquidity(key, 1e18);
+
+        // Advance time so rewards accrue
+        uint256 startTime = hook.lastMinted();
+        uint256 elapsed = 20;
+        vm.warp(startTime + elapsed);
+
+        // Take a snapshot of the developer's balance BEFORE the mint failure scenario
+        uint256 devBalanceBefore = dcaToken.balanceOf(developer);
+
+        // Remove minting permissions from the gauge so that mint attempts revert
+        hook.returnSuperDCATokenOwnership();
+
+        // Removing liquidity should not revert
+        _modifyLiquidity(key, -1e18);
+
+        // Verify developer balance unchanged from *before* this specific operation
+        assertEq(dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged after failed mint");
+
+        // Verify lastMinted updated
+        assertEq(hook.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
     }
 }
 
@@ -825,74 +887,3 @@ contract ReturnSuperDCATokenOwnershipTest is AccessControlTest {
         vm.stopPrank();
     }   
 }
-
-// Note: These are commented out since the `msgSender` function is not
-// implemented in the PoolSwapTest contract.
-// TODO: https://github.com/Uniswap/v4-core/issues/967
-//
-// contract BeforeSwapTest is SuperDCAGaugeTest {
-//     using SafeCast for uint256;
-
-//     function setUp() public override {
-//         super.setUp();
-
-//         // Add initial liquidity to the pool
-//         _modifyLiquidity(key, 100e18); // Add substantial liquidity
-//     }
-
-//     // Helper function for swapping dcaToken for weth using poolManager directly
-//     function _swapDCAForWETH_PoolManager(address user, uint256 amountIn) internal returns (BalanceDelta) {
-//         vm.startPrank(user);
-
-//         // 1. User sends input token (dcaToken) to the poolManager
-//         dcaToken.transfer(address(manager), amountIn);
-
-//         // 2. User calls swap on poolManager
-//         // Prank as user again for the swap call itself
-//         BalanceDelta delta = swap(key, false, int256(amountIn), ZERO_BYTES);
-
-//         vm.stopPrank();
-
-//         return delta;
-//     }
-
-//     function test_BeforeSwap_AppliesFeesCorrectly_ForInternalUser() public {
-//         // Mark internalUser
-//         vm.prank(developer);
-//         hook.setInternalAddress(address(this), true);
-
-//         uint256 currency1Before = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // Setup and swap
-//         bool zeroForOne = true;
-//         int256 amountSpecified = -1e10;
-//         swapRouter.setMsgSender(address(this));
-//         dcaToken.approve(address(swapRouter), 1e10);
-//         swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
-
-//         uint256 currency1After = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // the fee is 0.05% so we should receive approximately 0.9995 of currency1
-//         assertEq(currency1After - currency1Before, uint256(0.9995e10 - 1));
-//     }
-
-//     function test_BeforeSwap_AppliesFeesCorrectly_ForExternalUser() public {
-//         // Mark externalUser
-//         vm.prank(developer);
-//         hook.setInternalAddress(address(this), false);
-
-//         uint256 currency1Before = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // Setup and swap
-//         int256 amountSpecified = -1e10;
-//         bool zeroForOne = true;
-//         swapRouter.setMsgSender(address(this));
-//         dcaToken.approve(address(swapRouter), 1e10);
-//         swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
-
-//         uint256 currency1After = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // the fee is 0.50% so we should receive approximately 0.9950 of currency1
-//         assertEq(currency1After - currency1Before, uint256(0.995e10 - 1));
-//     }
-// }

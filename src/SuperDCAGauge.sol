@@ -46,8 +46,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // Constants
-    uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
-    uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
+    uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
+    uint24 public constant EXTERNAL_POOL_FEE = 10000; // 1.00%
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -108,9 +108,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         mintRate = _mintRate;
         lastMinted = block.timestamp;
 
-        // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
-        _grantRole(DEFAULT_ADMIN_ROLE, _developerAddress);
-        // Grant the developer the manager role
+        // Grant the deployer (msg.sender) the default admin role for initial setup and role management
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        // Grant the developer the manager role to control the mint rate and fees
         _grantRole(MANAGER_ROLE, _developerAddress);
     }
 
@@ -220,8 +220,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         // Check if pool has liquidity before proceeding with donation
         uint128 liquidity = IPoolManager(msg.sender).getLiquidity(key.toId());
         if (liquidity == 0) {
-            // If no liquidity, just send everything to developer
-            ISuperchainERC20(superDCAToken).mint(developerAddress, rewardAmount);
+            // If no liquidity, try sending everything to developer (do not revert if mint fails)
+            _tryMint(developerAddress, rewardAmount);
             return;
         }
 
@@ -229,21 +229,21 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         uint256 developerShare = rewardAmount / 2;
         uint256 communityShare = rewardAmount - developerShare;
 
-        // Mint developer share
-        ISuperchainERC20(superDCAToken).mint(developerAddress, developerShare);
+        // Mint developer share (ignore failure)
+        _tryMint(developerAddress, developerShare);
 
-        // Mint community share and donate to pool
-        ISuperchainERC20(superDCAToken).mint(address(poolManager), communityShare);
+        // Mint community share and donate to pool only if mint succeeds
+        if (_tryMint(address(poolManager), communityShare)) {
+            // Donate community share to pool
+            if (superDCAToken == Currency.unwrap(key.currency0)) {
+                IPoolManager(msg.sender).donate(key, communityShare, 0, hookData);
+            } else {
+                IPoolManager(msg.sender).donate(key, 0, communityShare, hookData);
+            }
 
-        // Donate community share to pool
-        if (superDCAToken == Currency.unwrap(key.currency0)) {
-            IPoolManager(msg.sender).donate(key, communityShare, 0, hookData);
-        } else {
-            IPoolManager(msg.sender).donate(key, 0, communityShare, hookData);
+            // Settle the donation only if mint and donate succeed
+            poolManager.settle();
         }
-
-        // Settle the donation
-        poolManager.settle();
 
         /// @dev: At this point, there are DCA tokens left in the hook for the other pools.
     }
@@ -460,5 +460,20 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     function returnSuperDCATokenOwnership() external onlyRole(DEFAULT_ADMIN_ROLE) {
         ISuperchainERC20(superDCAToken).transferOwnership(msg.sender);
         emit SuperDCATokenOwnershipReturned(msg.sender);
+    }
+
+    /**
+     * @notice Safely attempts to mint tokens, returning false if the call reverts.
+     * @param to The address to mint tokens to.
+     * @param amount The amount of tokens to mint.
+     * @return success True if minting succeeded, false otherwise.
+     */
+    function _tryMint(address to, uint256 amount) internal returns (bool success) {
+        if (amount == 0) return true;
+        try ISuperchainERC20(superDCAToken).mint(to, amount) {
+            return true;
+        } catch {
+            return false;
+        }
     }
 }
