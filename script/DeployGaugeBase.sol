@@ -27,7 +27,7 @@ abstract contract DeployGaugeBase is Script {
     address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
-    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 99818102307311103866771172651308976963584; // 0.64 USDC/DCA
+    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5452371394062524740239127216128; // 4736 DCA / ETH
 
     struct HookConfiguration {

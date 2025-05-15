@@ -108,8 +108,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         mintRate = _mintRate;
         lastMinted = block.timestamp;
 
-        // Grant the deployer (msg.sender) the default admin role for initial setup and role management
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _developerAddress);
         // Grant the developer the manager role to control the mint rate and fees
         _grantRole(MANAGER_ROLE, _developerAddress);
     }

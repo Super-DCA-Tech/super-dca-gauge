@@ -262,7 +262,7 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
         vm.warp(startTime + elapsed);
 
         // Remove minting permissions from the gauge so that subsequent mint calls revert
-        // The test contract is the DEFAULT_ADMIN_ROLE, so it can call this helper.
+        vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
         // Expect no revert even though the internal mint will fail
@@ -331,6 +331,7 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         uint256 devBalanceBefore = dcaToken.balanceOf(developer);
 
         // Remove minting permissions from the gauge so that mint attempts revert
+        vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
         // Removing liquidity should not revert
@@ -748,12 +749,10 @@ contract AccessControlTest is SuperDCAGaugeTest {
     }
 
     function test_Should_AllowAdminToUpdateManager() public {
-        address currentAdmin = address(this);
-
         assertTrue(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Initial manager role incorrect");
         assertFalse(hook.hasRole(hook.MANAGER_ROLE(), newManagerUser), "New manager should not have role initially");
 
-        vm.prank(currentAdmin);
+        vm.prank(developer);
         hook.updateManager(managerUser, newManagerUser);
 
         assertFalse(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Old manager should lose role");
@@ -867,11 +866,11 @@ contract ReturnSuperDCATokenOwnershipTest is AccessControlTest {
         // Precondition: hook should own the token
         assertEq(dcaToken.owner(), address(hook), "Hook should own the token before return");
 
-        // Call as admin (address(this))
+        vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
         // Postcondition: admin owns the token
-        assertEq(dcaToken.owner(), address(this), "Admin should own the token after return");
+        assertEq(dcaToken.owner(), developer, "Developer should own the token after return");
     }
 
     function test_RevertWhen_NonAdminCalls() public {
