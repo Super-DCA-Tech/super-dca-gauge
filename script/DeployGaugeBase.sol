@@ -28,7 +28,7 @@ abstract contract DeployGaugeBase is Script {
 
     // Initial sqrtPriceX96 for the pools
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
-    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5452371394062524740239127216128; // 4736 DCA / ETH
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5174885917930467233270080641214; // 0.0002344 ETH/DCA
 
     struct HookConfiguration {
         address poolManager;
@@ -90,22 +90,22 @@ abstract contract DeployGaugeBase is Script {
         // ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
         // console2.log("Granted MINTER_ROLE to hook:", address(hook));
 
-        IERC20(DCA_TOKEN).approve(address(hook), 100 ether);
+        IERC20(DCA_TOKEN).approve(address(hook), 10 ether);
 
         // Stake the ETH token to the hook with 600 DCA
-        hook.stake(poolConfig.token0, 60 ether);
-        console2.log("Staked 60 DCA to the ETH/DCA pool");
+        hook.stake(poolConfig.token0, 6 ether);
+        console2.log("Staked 6 DCA to the ETH/DCA pool");
 
         // Stake the USDC token to the hook with 400 DCA
-        hook.stake(poolConfig.token1, 40 ether);
-        console2.log("Staked 40 DCA to the USDC/DCA pool");
+        hook.stake(poolConfig.token1, 4 ether);
+        console2.log("Staked 4 DCA to the USDC/DCA pool");
 
         // Create pool keys for both USDC/DCA and ETH/DCA pools
         PoolKey memory usdcPoolKey = PoolKey({
             currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
             currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 2,
+            tickSpacing: 10,
             hooks: IHooks(hook)
         });
 
@@ -113,7 +113,7 @@ abstract contract DeployGaugeBase is Script {
             currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
             currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 2,
+            tickSpacing: 10,
             hooks: IHooks(hook)
         });
 

@@ -16,3 +16,5 @@
   sepolia-base = "https://sepolia.base.org/"
   sepolia-unichain = "https://sepolia.unichain.org/"
   optimism = "${OPTIMISM_RPC_URL}"
+  base = "${BASE_RPC_URL}"
+  unichain = "${UNICHAIN_RPC_URL}"
