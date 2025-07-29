@@ -15,6 +15,9 @@ import {console2} from "forge-std/Test.sol";
 import {HookMiner} from "../test/utils/HookMiner.sol";
 import {ISuperchainERC20} from "../src/interfaces/ISuperchainERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+// import {IProtocolFees} from "lib/v4-core/src/interfaces/IProtocolFees.sol";
+import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
 
 abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
@@ -26,6 +29,11 @@ abstract contract DeployGaugeBase is Script {
     // Initial sqrtPriceX96 for the pools
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 79228162514264337593543950336000000; // 1 DCA:1 USDC
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 4116816085950894041399904174080; // 1 DCA:2700 ETH
+
+    // Addresses for the PositionManager and ProtocolFees contracts
+    // These addresses are placeholders and should be replaced with actual deployed contract addresses
+    address public constant positionManager = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    address public constant protocolFees = 0x000000000004444c5dc75cB358380D2e3De08A91;
 
     struct HookConfiguration {
         address poolManager;
@@ -71,7 +79,12 @@ abstract contract DeployGaugeBase is Script {
 
         // Deploy the hook using CREATE2 with the mined salt
         hook = new SuperDCAGauge{salt: salt}(
-            IPoolManager(hookConfig.poolManager), DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate
+            IPoolManager(hookConfig.poolManager),
+            DCA_TOKEN,
+            hookConfig.developerAddress,
+            hookConfig.mintRate,
+            IPositionManager(positionManager),
+            IProtocolFees(protocolFees)
         );
 
         require(address(hook) == hookAddress, "Hook address mismatch");

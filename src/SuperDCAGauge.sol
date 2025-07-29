@@ -16,6 +16,13 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
+// @fawarano import
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
+
 /**
  * @title SuperDCAGauge
  * @notice A Uniswap V4 pool hook that implements a staking and reward distribution system.
@@ -39,6 +46,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using EnumerableSet for EnumerableSet.AddressSet;
+    using SafeERC20 for IERC20;
+
+    IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
+    IProtocolFees public protocolFees; // The Uniswap V4 protocol fees contract for collecting fees
+
+    address public owner; // Owner of the contract, used for fee collection and management
 
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
@@ -53,6 +66,32 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     struct TokenRewardInfo {
         uint256 stakedAmount;
         uint256 lastRewardIndex;
+    }
+    /**
+     * @notice State of a position in the Uniswap V3 position manager
+     * @param tokensOwed0 The uncollected amount of token0 owed to the position
+     * @param tokensOwed1 The uncollected amount of token1 owed to the position
+     * @param tokensForGelato0 The amount of token0 reserved for Gelato
+     * @param tokensForGelato1 The amount of token1 reserved for Gelato
+     * @param token0 The address of the first token in the Uniswap V3 position
+     * @param token1 The address of the second token in the Uniswap V3 position
+     * @param fee The fee associated with the Uniswap V3 pool
+     */
+    // Note: This struct is used to track the state of a position in the Uniswap V3 position manager
+
+    struct PositionState {
+        uint96 nonce;
+        address operator;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 feeGrowthInside0LastX128;
+        uint256 feeGrowthInside1LastX128;
+        uint128 tokensOwed0;
+        uint128 tokensOwed1;
     }
 
     // State
@@ -70,6 +109,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     mapping(address token => TokenRewardInfo info) public tokenRewardInfos;
     mapping(address user => EnumerableSet.AddressSet stakedTokens) private userStakedTokens;
     mapping(address user => mapping(address token => uint256 amount)) public userStakes;
+    mapping(address => bool) public isTokenListed; // Track if a token is listed
+    mapping(uint256 => address) public tokenOfNfp; // Stores the token corresponding to a listed NFP
 
     // Events
     event Staked(address indexed token, address indexed user, uint256 amount);
@@ -77,6 +118,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     event RewardIndexUpdated(uint256 newIndex);
     event InternalAddressUpdated(address indexed user, bool isInternal);
     event FeeUpdated(bool indexed isInternal, uint24 oldFee, uint24 newFee);
+    event FeesCollected(address indexed recipient, uint256 amount0, uint256 amount1);
+    event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
 
     // Errors
     error NotDynamicFee();
@@ -84,6 +127,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     error ZeroAmount();
     error InvalidPoolFee();
     error PoolMustIncludeSuperDCAToken();
+    error UniswapTokenNotSet();
+    error NotTheOwner();
+    error IncorrectHookAddress();
+    error LowLiquidity();
+    error NotFullRangePosition();
+    error TokenAlreadyListed();
 
     /**
      * @notice Sets the initial state.
@@ -92,7 +141,15 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param _developerAddress The address of the Developer.
      * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
-    constructor(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, uint256 _mintRate)
+    constructor(
+        IPoolManager _poolManager,
+        address _superDCAToken,
+        address _developerAddress,
+        uint256 _mintRate,
+        IPositionManager _positionManagerV4,
+        IProtocolFees _protocolFees
+    )
+        // INonfungiblePositionManager _positionManager
         BaseHook(_poolManager)
     {
         superDCAToken = _superDCAToken;
@@ -101,11 +158,101 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         externalFee = EXTERNAL_POOL_FEE;
         mintRate = _mintRate;
         lastMinted = block.timestamp;
+        positionManagerV4 = _positionManagerV4;
+        protocolFees = _protocolFees;
+        owner = msg.sender; // Set the owner to the deployer of the contract
 
         // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         // Grant the developer the manager role
         _grantRole(MANAGER_ROLE, _developerAddress);
+    }
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) {
+            revert NotTheOwner();
+        }
+        _;
+    }
+
+    /// @notice Collects fees from the Uniswap V3 position and transfers them to the recipient
+    /// @param nfpId The ID of the Non-Fungible Position (NFP) to collect fees from
+    /// @param recipient The address to which the collected fees will be sent
+    /// @dev This function collects fees from a specific Uniswap V4 position and transfers
+    /// the collected fees to the specified recipient. It uses SafeERC20 to ensure safe transfers
+    /// and emits an event for the collected fees.
+    function collectFees(uint256 nfpId, address recipient) external onlyOwner {
+        (PoolKey memory key,) = positionManagerV4.getPoolAndPositionInfo(nfpId);
+        Currency token0 = key.currency0;
+        Currency token1 = key.currency1;
+
+        uint256 collectedAmount0 = protocolFees.collectProtocolFees(address(this), token0, 0);
+        uint256 collectedAmount1 = protocolFees.collectProtocolFees(address(this), token1, 0);
+
+        // Transfer using SafeERC20
+        if (collectedAmount0 > 0) {
+            SafeERC20.safeTransfer(IERC20(Currency.unwrap(token0)), recipient, collectedAmount0);
+        }
+
+        if (collectedAmount1 > 0) {
+            SafeERC20.safeTransfer(IERC20(Currency.unwrap(token1)), recipient, collectedAmount1);
+        }
+
+        // Emit event for collected fees
+
+        emit FeesCollected(recipient, collectedAmount0, collectedAmount1);
+    }
+
+    /**
+     *
+     * @param nftId the Non-Fungible Position (NFP) ID to list
+     * @param key the PoolKey of the position to list
+     * @notice Lists a Non-Fungible Position (NFP) for DCA trading
+     * @dev This function allows users to list their NFPs for DCA trading by providing
+     * the NFP ID and the PoolKey. It checks if the token is already listed,
+     * verifies the position's liquidity, and ensures the pool fee is a dynamic fee.
+     * It also checks that the position is a full range position.
+     * @dev The position must be a full range position, meaning it covers the entire tick range.
+     * @dev The function transfers the NFP ownership from the user to this contract.
+     * @dev The function assumes that the DCA token is currency0 in the PoolKey.
+     */
+    function list(uint256 nftId, PoolKey calldata key) external {
+        // assuming that DCA is currency0
+
+        address tok = Currency.unwrap(key.currency1);
+        if (isTokenListed[tok]) {
+            revert TokenAlreadyListed();
+        }
+        isTokenListed[tok] = true;
+        tokenOfNfp[nftId] = tok;
+
+        // check that the hooks address is this contrat address
+        if (key.hooks != IHooks(address(this))) {
+            revert IncorrectHookAddress();
+        }
+
+        // check that the position is greather than 1000 DCA tokens
+        uint128 liquidity = positionManagerV4.getPositionLiquidity(nftId);
+        if (liquidity < 1000e18) {
+            revert LowLiquidity();
+        }
+
+        // check that the pool fee is dyamic fee value
+        if (!key.fee.isDynamicFee()) revert NotDynamicFee();
+
+        //check that the position is full range position
+        PositionInfo positionInfo = positionManagerV4.positionInfo(nftId);
+        int24 tickLower = positionInfo.tickLower();
+        int24 tickUpper = positionInfo.tickUpper();
+
+        if (tickLower != type(int24).min || tickUpper != type(int24).max) {
+            revert NotFullRangePosition();
+        }
+
+        // transfer the NFP ownership from user to this contract
+        IERC721(address(positionManagerV4)).transferFrom(msg.sender, address(this), nftId);
+
+        emit TokenListed(tok, nftId, key);
     }
 
     /**
