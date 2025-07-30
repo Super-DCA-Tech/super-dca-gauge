@@ -12,9 +12,12 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
 import {IMsgSender} from "./interfaces/IMsgSender.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "./BaseHookUpgradeable.sol";
 
 /**
  * @title SuperDCAGauge
@@ -34,7 +37,7 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/type
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is BaseHook, AccessControl {
+contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -92,21 +95,28 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param _developerAddress The address of the Developer.
      * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
-    constructor(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, uint256 _mintRate)
-        BaseHook(_poolManager)
-    {
+    function initialize(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, uint256 _mintRate) external initializer {
+        /* --- parent initialisers --- */
+        __BaseHook_init(_poolManager);
+        __AccessControl_init();
+        __UUPSUpgradeable_init();
+
+        /* --- state --- */
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
         internalFee = INTERNAL_POOL_FEE;
         externalFee = EXTERNAL_POOL_FEE;
         mintRate = _mintRate;
         lastMinted = block.timestamp;
+        rewardIndex = 0;
 
-        // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
+        /* --- roles --- */
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        // Grant the developer the manager role
         _grantRole(MANAGER_ROLE, _developerAddress);
     }
+
+    /// @dev UUPS upgrade guard – only DEFAULT_ADMIN can upgrade.
+    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     /**
      * @notice Returns the hook permissions.
