@@ -16,6 +16,9 @@ import {MockERC20Token} from "./mocks/MockERC20Token.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
+import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+
+
 
 contract SuperDCAGaugeTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
@@ -102,8 +105,21 @@ contract SuperDCAGaugeTest is Test, Deployers {
                     | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG
             ) ^ (0x4242 << 144)
         );
-        bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate);
-        deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
+       
+        address impl = address(new SuperDCAGauge());
+
+        bytes memory initData = abi.encodeCall(
+            SuperDCAGauge.initialize,
+            (manager, address(dcaToken), developer, mintRate)
+        );
+
+
+        deployCodeTo(
+            "ERC1967Proxy.sol:ERC1967Proxy",
+            abi.encode(impl, initData),
+            flags
+        );
+
         hook = SuperDCAGauge(flags);
 
         // No need to grant minter role as we'll use the mock's mint function directly
