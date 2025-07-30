@@ -843,7 +843,7 @@ contract UpgradeSuperDCAGaugeTest is SuperDCAGaugeTest {
 
         // 2) old state is intact
         assertEq(upgraded.totalStakedAmount(), stakedBefore,  "stake should persist");
-        assertEq(upgraded.rewardIndex(),        indexBefore,  "rewardIndex should persist");
+        assertEq(upgraded.rewardIndex(), indexBefore,  "rewardIndex should persist");
     }
 }
 
