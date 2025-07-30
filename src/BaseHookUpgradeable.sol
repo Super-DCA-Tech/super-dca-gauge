@@ -21,6 +21,11 @@ abstract contract BaseHookUpgradeable is Initializable, IHooks {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
 
+    modifier onlyPoolManager() {
+        require(msg.sender == address(poolManager), "PoolManager only");
+        _;
+    }
+
     function __BaseHook_init(IPoolManager _pm) internal onlyInitializing {
         poolManager = _pm;
 
@@ -30,12 +35,7 @@ abstract contract BaseHookUpgradeable is Initializable, IHooks {
         );
     }
 
-     function getHookPermissions() public pure virtual returns (Hooks.Permissions memory);
-
-    modifier onlyPoolManager() {
-        require(msg.sender == address(poolManager), "PoolManager only");
-        _;
-    }
+    function getHookPermissions() public pure virtual returns (Hooks.Permissions memory);
 
      /// @inheritdoc IHooks
     function beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)

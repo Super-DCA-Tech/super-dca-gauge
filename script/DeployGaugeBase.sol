@@ -70,9 +70,9 @@ abstract contract DeployGaugeBase is Script {
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
 
         // Deploy the hook using CREATE2 with the mined salt
-        hook = new SuperDCAGauge{salt: salt}(
-            IPoolManager(hookConfig.poolManager), DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate
-        );
+        hook = new SuperDCAGauge{salt: salt}();
+
+        hook.initialize(IPoolManager(hookConfig.poolManager), DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate);
 
         require(address(hook) == hookAddress, "Hook address mismatch");
 
