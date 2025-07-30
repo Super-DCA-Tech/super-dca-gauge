@@ -17,6 +17,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {SuperDCAGaugeV2} from "./SuperDCAGaugeV2.sol";
 
 
 
@@ -810,6 +811,39 @@ contract SetInternalAddressTest is AccessControlTest {
         vm.expectRevert("Cannot set zero address");
         vm.prank(managerUser);
         hook.setInternalAddress(address(0), true);
+    }
+}
+
+/// -----------------------------------------------------------------------
+/// Upgrade test-case
+/// -----------------------------------------------------------------------
+contract UpgradeSuperDCAGaugeTest is SuperDCAGaugeTest {
+    function test_upgrade_preserves_state_and_enables_new_logic() public {
+        /* ---------- arrange: mutate state we’ll later check ---------- */
+        uint256 stakeAmount = 42e18;
+        _stake(address(weth), stakeAmount);
+
+        uint256 stakedBefore  = hook.totalStakedAmount();
+        uint256 indexBefore   = hook.rewardIndex();
+
+        /* ---------- act: compile V2 and upgrade the proxy ---------- */
+        // The contract must be compiled, so we reference it.
+        string memory v2Artifact = "SuperDCAGaugeV2.sol";
+
+        Upgrades.upgradeProxy(address(hook), v2Artifact, "");
+
+        SuperDCAGaugeV2(address(hook)).initializeV2();
+
+        /* ---------- assert: proxy now runs V2 but kept its storage ---------- */
+        // Cast the proxy address to the new interface
+        SuperDCAGaugeV2 upgraded = SuperDCAGaugeV2(address(hook));
+
+        // 1) new code is live
+        assertEq(upgraded.version(), "V2");
+
+        // 2) old state is intact
+        assertEq(upgraded.totalStakedAmount(), stakedBefore,  "stake should persist");
+        assertEq(upgraded.rewardIndex(),        indexBefore,  "rewardIndex should persist");
     }
 }
 
