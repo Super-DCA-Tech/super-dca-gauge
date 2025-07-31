@@ -32,6 +32,8 @@ contract SuperDCAGaugeTest is Test, Deployers {
     address developer = address(0xDEADBEEF);
     uint256 mintRate = 100; // SDCA tokens per second
     MockERC20Token public weth;
+    address admin = address(0x1); 
+    address pauser = address(0x2);
 
     // --------------------------------------------
     // Helper Functions
@@ -111,9 +113,8 @@ contract SuperDCAGaugeTest is Test, Deployers {
 
         bytes memory initData = abi.encodeCall(
             SuperDCAGauge.initialize,
-            (manager, address(dcaToken), developer, mintRate)
+            (manager, address(dcaToken), developer, admin, pauser, mintRate)
         );
-
 
         deployCodeTo(
             "ERC1967Proxy.sol:ERC1967Proxy",
@@ -700,7 +701,7 @@ contract AccessControlTest is SuperDCAGaugeTest {
     }
 
     function test_Should_AllowAdminToUpdateManager() public {
-        address currentAdmin = address(this);
+        address currentAdmin = admin;
 
         assertTrue(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Initial manager role incorrect");
         assertFalse(hook.hasRole(hook.MANAGER_ROLE(), newManagerUser), "New manager should not have role initially");
@@ -830,9 +831,11 @@ contract UpgradeSuperDCAGaugeTest is SuperDCAGaugeTest {
         // The contract must be compiled, so we reference it.
         string memory v2Artifact = "SuperDCAGaugeV2.sol";
 
+        vm.startPrank(admin);
         Upgrades.upgradeProxy(address(hook), v2Artifact, "");
 
         SuperDCAGaugeV2(address(hook)).initializeV2();
+        vm.stopPrank();
 
         /* ---------- assert: proxy now runs V2 but kept its storage ---------- */
         // Cast the proxy address to the new interface

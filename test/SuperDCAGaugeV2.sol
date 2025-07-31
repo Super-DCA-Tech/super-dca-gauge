@@ -9,6 +9,9 @@ contract SuperDCAGaugeV2 is SuperDCAGauge {
     /// @custom:oz-upgrades-validate-as-initializer
     function initializeV2() external reinitializer(2) {
         __BaseHook_init(poolManager);
+        __AccessControl_init();
+        __UUPSUpgradeable_init();
+        __Pausable_init();
     }
 
     function version() external pure returns (string memory) {

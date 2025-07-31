@@ -17,6 +17,7 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "./BaseHookUpgradeable.sol";
 
 /**
@@ -37,7 +38,7 @@ import "./BaseHookUpgradeable.sol";
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
+contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, PausableUpgradeable{
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -88,6 +89,8 @@ contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgra
     error InvalidPoolFee();
     error PoolMustIncludeSuperDCAToken();
 
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+
     /**
      * @notice Sets the initial state.
      * @param _poolManager The Uniswap V4 pool manager.
@@ -95,11 +98,12 @@ contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgra
      * @param _developerAddress The address of the Developer.
      * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
-    function initialize(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, uint256 _mintRate) external initializer {
+    function initialize(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, address defaultAdmin, address pauser, uint256 _mintRate) external initializer {
         /* --- parent initialisers --- */
         __BaseHook_init(_poolManager);
         __AccessControl_init();
         __UUPSUpgradeable_init();
+        __Pausable_init();
 
         /* --- state --- */
         superDCAToken = _superDCAToken;
@@ -111,12 +115,21 @@ contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgra
         rewardIndex = 0;
 
         /* --- roles --- */
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(MANAGER_ROLE, _developerAddress);
+        _grantRole(PAUSER_ROLE, pauser);
     }
 
     /// @dev UUPS upgrade guard – only DEFAULT_ADMIN can upgrade.
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function pause() public onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() public onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
 
     /**
      * @notice Returns the hook permissions.
