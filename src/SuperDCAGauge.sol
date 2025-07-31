@@ -10,6 +10,8 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
 import {IMsgSender} from "./interfaces/IMsgSender.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
@@ -34,11 +36,12 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/type
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is BaseHook, AccessControl {
+contract SuperDCAGauge is BaseHook, AccessControl, ReentrancyGuard {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using EnumerableSet for EnumerableSet.AddressSet;
+    using SafeERC20 for IERC20;
 
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
@@ -84,6 +87,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     error ZeroAmount();
     error InvalidPoolFee();
     error PoolMustIncludeSuperDCAToken();
+    error InvalidPoolManager();
+    error InvalidTokenAddress();
+    error InvalidDeveloperAddress();
 
     /**
      * @notice Sets the initial state.
@@ -95,6 +101,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     constructor(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, uint256 _mintRate)
         BaseHook(_poolManager)
     {
+        if (address(_poolManager) == address(0)) revert InvalidPoolManager();
+        if (_superDCAToken == address(0)) revert InvalidTokenAddress();
+        if (_developerAddress == address(0)) revert InvalidDeveloperAddress();
+        
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
         internalFee = INTERNAL_POOL_FEE;
@@ -247,7 +257,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         PoolKey calldata key,
         IPoolManager.ModifyLiquidityParams calldata, // params
         bytes calldata hookData
-    ) internal override returns (bytes4) {
+    ) internal override nonReentrant returns (bytes4) {
         _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeAddLiquidity.selector;
     }
@@ -257,7 +267,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         PoolKey calldata key,
         IPoolManager.ModifyLiquidityParams calldata, // params
         bytes calldata hookData
-    ) internal override returns (bytes4) {
+    ) internal override nonReentrant returns (bytes4) {
         _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeRemoveLiquidity.selector;
     }
@@ -298,16 +308,13 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param token The token address representing the pool to stake for
      * @param amount The amount of SuperDCATokens to stake
      */
-    function stake(address token, uint256 amount) external {
+    function stake(address token, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
 
         // Update reward index before modifying stake
         _updateRewardIndex();
 
-        // Transfer tokens from user
-        IERC20(superDCAToken).transferFrom(msg.sender, address(this), amount);
-
-        // Update token reward info
+        // Update token reward info - STATE UPDATES FIRST
         TokenRewardInfo storage info = tokenRewardInfos[token];
         info.stakedAmount += amount;
         info.lastRewardIndex = rewardIndex;
@@ -319,6 +326,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         userStakedTokens[msg.sender].add(token);
         userStakes[msg.sender][token] += amount;
 
+        // Transfer tokens from user - EXTERNAL CALL LAST
+        IERC20(superDCAToken).safeTransferFrom(msg.sender, address(this), amount);
+
         emit Staked(token, msg.sender, amount);
     }
 
@@ -328,7 +338,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param token The token address representing the pool to unstake from
      * @param amount The amount of SuperDCATokens to unstake
      */
-    function unstake(address token, uint256 amount) external {
+    function unstake(address token, uint256 amount) external nonReentrant {
         TokenRewardInfo storage info = tokenRewardInfos[token];
 
         if (amount == 0) revert ZeroAmount();
@@ -352,7 +362,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         }
 
         // Transfer tokens back to user
-        IERC20(superDCAToken).transfer(msg.sender, amount);
+        IERC20(superDCAToken).safeTransfer(msg.sender, amount);
 
         emit Unstaked(token, msg.sender, amount);
     }
