@@ -70,32 +70,6 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
         uint256 stakedAmount;
         uint256 lastRewardIndex;
     }
-    /**
-     * @notice State of a position in the Uniswap V3 position manager
-     * @param tokensOwed0 The uncollected amount of token0 owed to the position
-     * @param tokensOwed1 The uncollected amount of token1 owed to the position
-     * @param tokensForGelato0 The amount of token0 reserved for Gelato
-     * @param tokensForGelato1 The amount of token1 reserved for Gelato
-     * @param token0 The address of the first token in the Uniswap V3 position
-     * @param token1 The address of the second token in the Uniswap V3 position
-     * @param fee The fee associated with the Uniswap V3 pool
-     */
-    // Note: This struct is used to track the state of a position in the Uniswap V3 position manager
-
-    struct PositionState {
-        uint96 nonce;
-        address operator;
-        address token0;
-        address token1;
-        uint24 fee;
-        int24 tickLower;
-        int24 tickUpper;
-        uint128 liquidity;
-        uint256 feeGrowthInside0LastX128;
-        uint256 feeGrowthInside1LastX128;
-        uint128 tokensOwed0;
-        uint128 tokensOwed1;
-    }
 
     // State
     address public superDCAToken;
@@ -176,7 +150,7 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
         _grantRole(MANAGER_ROLE, _developerAddress);
     }
 
-    /// @notice Collects fees from the Uniswap V3 position and transfers them to the recipient
+    /// @notice Collects fees from the Uniswap V4 position and transfers them to the recipient
     /// @param nfpId The ID of the Non-Fungible Position (NFP) to collect fees from
     /// @param recipient The address to which the collected fees will be sent
     /// @dev This function collects fees from a specific Uniswap V4 position and transfers
@@ -211,7 +185,7 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
         // Emit event for collected fees
 
         emit FeesCollected(
-            recipient, Currency.unwrap(token0), Currency.unwrap(token0), collectedAmount0, collectedAmount1
+            recipient, Currency.unwrap(token0), Currency.unwrap(token1), collectedAmount0, collectedAmount1
         );
     }
 

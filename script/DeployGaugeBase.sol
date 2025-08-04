@@ -85,7 +85,8 @@ abstract contract DeployGaugeBase is Script {
             hookConfig.developerAddress,
             hookConfig.mintRate,
             IPositionManager(POSITION_MANAGER),
-            IProtocolFees(PROTOCOL_FEES), IStateView(ISTATE_VIEW)
+            IProtocolFees(PROTOCOL_FEES),
+            IStateView(ISTATE_VIEW)
         );
 
         require(address(hook) == hookAddress, "Hook address mismatch");
