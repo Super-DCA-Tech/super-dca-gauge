@@ -22,6 +22,10 @@ import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
+import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
+import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
 
 /**
  * @title SuperDCAGauge
@@ -41,18 +45,17 @@ import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is BaseHook, AccessControl {
+contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
+    using TickMath for int24;
 
     IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
     IProtocolFees public protocolFees; // The Uniswap V4 protocol fees contract for collecting fees
-
-    address public owner; // Owner of the contract, used for fee collection and management
-
+    IStateView public stateView; // The StateView contract for reading pool state
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
     uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
@@ -118,7 +121,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     event RewardIndexUpdated(uint256 newIndex);
     event InternalAddressUpdated(address indexed user, bool isInternal);
     event FeeUpdated(bool indexed isInternal, uint24 oldFee, uint24 newFee);
-    event FeesCollected(address indexed recipient, uint256 amount0, uint256 amount1);
+    event FeesCollected(
+        address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
+    );
     event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
 
     // Errors
@@ -133,6 +138,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     error LowLiquidity();
     error NotFullRangePosition();
     error TokenAlreadyListed();
+    error InvalidAddress();
 
     /**
      * @notice Sets the initial state.
@@ -147,10 +153,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         address _developerAddress,
         uint256 _mintRate,
         IPositionManager _positionManagerV4,
-        IProtocolFees _protocolFees
+        IProtocolFees _protocolFees,
+        IStateView _stateView
     )
         // INonfungiblePositionManager _positionManager
         BaseHook(_poolManager)
+        Ownable(msg.sender)
     {
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
@@ -160,19 +168,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         lastMinted = block.timestamp;
         positionManagerV4 = _positionManagerV4;
         protocolFees = _protocolFees;
-        owner = msg.sender; // Set the owner to the deployer of the contract
+        stateView = _stateView;
 
         // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         // Grant the developer the manager role
         _grantRole(MANAGER_ROLE, _developerAddress);
-    }
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) {
-            revert NotTheOwner();
-        }
-        _;
     }
 
     /// @notice Collects fees from the Uniswap V3 position and transfers them to the recipient
@@ -181,7 +182,16 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /// @dev This function collects fees from a specific Uniswap V4 position and transfers
     /// the collected fees to the specified recipient. It uses SafeERC20 to ensure safe transfers
     /// and emits an event for the collected fees.
-    function collectFees(uint256 nfpId, address recipient) external onlyOwner {
+    function collectFees(uint256 nfpId, address recipient) external {
+        _checkOwner();
+
+        if (nfpId == 0) {
+            revert UniswapTokenNotSet();
+        }
+        if (recipient == address(0)) {
+            revert InvalidAddress();
+        }
+
         (PoolKey memory key,) = positionManagerV4.getPoolAndPositionInfo(nfpId);
         Currency token0 = key.currency0;
         Currency token1 = key.currency1;
@@ -200,7 +210,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         // Emit event for collected fees
 
-        emit FeesCollected(recipient, collectedAmount0, collectedAmount1);
+        emit FeesCollected(
+            recipient, Currency.unwrap(token0), Currency.unwrap(token0), collectedAmount0, collectedAmount1
+        );
     }
 
     /**
@@ -217,24 +229,15 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @dev The function assumes that the DCA token is currency0 in the PoolKey.
      */
     function list(uint256 nftId, PoolKey calldata key) external {
-        // assuming that DCA is currency0
-
-        address tok = Currency.unwrap(key.currency1);
-        if (isTokenListed[tok]) {
-            revert TokenAlreadyListed();
-        }
-        isTokenListed[tok] = true;
-        tokenOfNfp[nftId] = tok;
-
+        PoolId poolId = key.toId();
         // check that the hooks address is this contrat address
         if (key.hooks != IHooks(address(this))) {
             revert IncorrectHookAddress();
         }
 
-        // check that the position is greather than 1000 DCA tokens
-        uint128 liquidity = positionManagerV4.getPositionLiquidity(nftId);
-        if (liquidity < 1000e18) {
-            revert LowLiquidity();
+        // check that the nftId is not zero
+        if (nftId == 0) {
+            revert UniswapTokenNotSet();
         }
 
         // check that the pool fee is dyamic fee value
@@ -248,11 +251,66 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         if (tickLower != type(int24).min || tickUpper != type(int24).max) {
             revert NotFullRangePosition();
         }
+        // liquidity amounts
+        uint128 liquidity = positionManagerV4.getPositionLiquidity(nftId);
+
+        (uint256 amount0, uint256 amount1) = _getAmounts(poolId, tickLower, tickUpper, liquidity);
+
+        address tok;
+        address dcaToken;
+        uint256 dcaAmount;
+        uint256 tokAmount;
+        if (Currency.unwrap(key.currency0) == address(superDCAToken)) {
+            dcaToken = Currency.unwrap(key.currency0);
+            tok = Currency.unwrap(key.currency1);
+            dcaAmount = amount0;
+            tokAmount = amount1;
+        } else if (Currency.unwrap(key.currency1) == address(superDCAToken)) {
+            dcaToken = Currency.unwrap(key.currency1);
+            tok = Currency.unwrap(key.currency0);
+            dcaAmount = amount1;
+            tokAmount = amount0;
+        } else {
+            revert PoolMustIncludeSuperDCAToken();
+        }
+
+        // check that the position has liquidity greater than 1000 DCA tokens
+        if (dcaAmount < 1000 * 10 ** 18) {
+            revert LowLiquidity();
+        }
+
+        // check that the token is not already listed
+        if (isTokenListed[tok]) {
+            revert TokenAlreadyListed();
+        }
+        isTokenListed[tok] = true;
+        tokenOfNfp[nftId] = tok;
 
         // transfer the NFP ownership from user to this contract
         IERC721(address(positionManagerV4)).transferFrom(msg.sender, address(this), nftId);
 
         emit TokenListed(tok, nftId, key);
+    }
+
+    /**
+     *
+     * @param poolId the PoolId of the Uniswap V4 pool
+     * @param tickLower the lower tick of the position
+     * @param tickUpper the upper tick of the position
+     * @param liquidity the liquidity of the position
+     * @return amount0 The amount of token0 that would be received for the given liquidity
+     * @return amount1 The amount of token1 that would be received for the given liquidity
+     */
+    function _getAmounts(PoolId poolId, int24 tickLower, int24 tickUpper, uint128 liquidity)
+        internal
+        view
+        returns (uint256 amount0, uint256 amount1)
+    {
+        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(poolId);
+        uint160 sqrtPriceAX96 = TickMath.getSqrtPriceAtTick(tickLower);
+        uint160 sqrtPriceBX96 = TickMath.getSqrtPriceAtTick(tickUpper);
+
+        return (LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceAX96, sqrtPriceBX96, liquidity));
     }
 
     /**
