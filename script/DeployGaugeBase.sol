@@ -72,8 +72,15 @@ abstract contract DeployGaugeBase is Script {
             uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs =
-            abi.encode(hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate);
+        bytes memory constructorArgs = abi.encode(
+            hookConfig.poolManager,
+            DCA_TOKEN,
+            hookConfig.developerAddress,
+            hookConfig.mintRate,
+            IPositionManager(POSITION_MANAGER),
+            IProtocolFees(PROTOCOL_FEES),
+            IStateView(ISTATE_VIEW)
+        );
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
