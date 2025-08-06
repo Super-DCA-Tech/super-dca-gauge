@@ -22,7 +22,6 @@ import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
 import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
@@ -45,7 +44,7 @@ import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
+contract SuperDCAGauge is BaseHook, AccessControl {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -56,6 +55,8 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
     IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
     IProtocolFees public protocolFees; // The Uniswap V4 protocol fees contract for collecting fees
     IStateView public stateView; // The StateView contract for reading pool state
+    uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum liquidity for a position to be listed
+
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
     uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
@@ -69,6 +70,15 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
     struct TokenRewardInfo {
         uint256 stakedAmount;
         uint256 lastRewardIndex;
+    }
+
+    struct TokenAmounts {
+        address token0;
+        address token1;
+        address tok;
+        address dcaToken;
+        uint256 dcaAmount;
+        uint256 tokAmount;
     }
 
     // State
@@ -132,7 +142,6 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
     )
         // INonfungiblePositionManager _positionManager
         BaseHook(_poolManager)
-        Ownable(msg.sender)
     {
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
@@ -156,9 +165,7 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
     /// @dev This function collects fees from a specific Uniswap V4 position and transfers
     /// the collected fees to the specified recipient. It uses SafeERC20 to ensure safe transfers
     /// and emits an event for the collected fees.
-    function collectFees(uint256 nfpId, address recipient) external {
-        _checkOwner();
-
+    function collectFees(uint256 nfpId, address recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (nfpId == 0) {
             revert UniswapTokenNotSet();
         }
@@ -204,6 +211,10 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
      */
     function list(uint256 nftId, PoolKey calldata key) external {
         PoolId poolId = key.toId();
+        TokenAmounts memory ta; // Token amounts to be used for DCA trading
+        ta.token0 = Currency.unwrap(key.currency0);
+        ta.token1 = Currency.unwrap(key.currency1);
+
         // check that the hooks address is this contrat address
         if (key.hooks != IHooks(address(this))) {
             revert IncorrectHookAddress();
@@ -230,40 +241,41 @@ contract SuperDCAGauge is BaseHook, AccessControl, Ownable {
 
         (uint256 amount0, uint256 amount1) = _getAmounts(poolId, tickLower, tickUpper, liquidity);
 
-        address tok;
-        address dcaToken;
-        uint256 dcaAmount;
-        uint256 tokAmount;
-        if (Currency.unwrap(key.currency0) == address(superDCAToken)) {
-            dcaToken = Currency.unwrap(key.currency0);
-            tok = Currency.unwrap(key.currency1);
-            dcaAmount = amount0;
-            tokAmount = amount1;
-        } else if (Currency.unwrap(key.currency1) == address(superDCAToken)) {
-            dcaToken = Currency.unwrap(key.currency1);
-            tok = Currency.unwrap(key.currency0);
-            dcaAmount = amount1;
-            tokAmount = amount0;
+        if (ta.token0 == address(superDCAToken)) {
+            ta.dcaToken = ta.token0;
+            ta.tok = ta.token1;
+            ta.dcaAmount = amount0;
+            ta.tokAmount = amount1;
+        } else if (ta.token1 == address(superDCAToken)) {
+            ta.dcaToken = ta.token1;
+            ta.tok = ta.token0;
+            ta.dcaAmount = amount1;
+            ta.tokAmount = amount0;
         } else {
             revert PoolMustIncludeSuperDCAToken();
         }
 
         // check that the position has liquidity greater than 1000 DCA tokens
-        if (dcaAmount < 1000 * 10 ** 18) {
+        if (ta.dcaAmount < minLiquidity) {
             revert LowLiquidity();
         }
 
         // check that the token is not already listed
-        if (isTokenListed[tok]) {
+        if (isTokenListed[ta.tok]) {
             revert TokenAlreadyListed();
         }
-        isTokenListed[tok] = true;
-        tokenOfNfp[nftId] = tok;
+        isTokenListed[ta.tok] = true;
+        tokenOfNfp[nftId] = ta.tok;
 
         // transfer the NFP ownership from user to this contract
+
         IERC721(address(positionManagerV4)).transferFrom(msg.sender, address(this), nftId);
 
-        emit TokenListed(tok, nftId, key);
+        emit TokenListed(ta.tok, nftId, key);
+    }
+
+    function setMinimumLiquidity(uint256 _minLiquidity) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        minLiquidity = _minLiquidity;
     }
 
     /**
