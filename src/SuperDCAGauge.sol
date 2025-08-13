@@ -21,8 +21,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
-import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
+//import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
+//import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
 import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
 
@@ -53,8 +53,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     using TickMath for int24;
 
     IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
-    IProtocolFees public protocolFees; // The Uniswap V4 protocol fees contract for collecting fees
-    IStateView public stateView; // The StateView contract for reading pool state
+    // IProtocolFees public protocolFees; // The Uniswap V4 protocol fees contract for collecting fees
+    // IStateView public stateView; // The StateView contract for reading pool state
     uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum liquidity for a position to be listed
 
     // Constants
@@ -136,10 +136,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         address _superDCAToken,
         address _developerAddress,
         uint256 _mintRate,
-        IPositionManager _positionManagerV4,
-        IProtocolFees _protocolFees,
-        IStateView _stateView
+        IPositionManager _positionManagerV4
     )
+        // IProtocolFees _protocolFees
+        // IStateView _stateView
         // INonfungiblePositionManager _positionManager
         BaseHook(_poolManager)
     {
@@ -150,8 +150,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         mintRate = _mintRate;
         lastMinted = block.timestamp;
         positionManagerV4 = _positionManagerV4;
-        protocolFees = _protocolFees;
-        stateView = _stateView;
+        // protocolFees = _protocolFees;
+        //stateView = _stateView;
 
         // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -177,8 +177,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         Currency token0 = key.currency0;
         Currency token1 = key.currency1;
 
-        uint256 collectedAmount0 = protocolFees.collectProtocolFees(address(this), token0, 0);
-        uint256 collectedAmount1 = protocolFees.collectProtocolFees(address(this), token1, 0);
+        uint256 collectedAmount0 = poolManager.collectProtocolFees(address(this), token0, 0);
+        uint256 collectedAmount1 = poolManager.collectProtocolFees(address(this), token1, 0);
 
         // Transfer using SafeERC20
         if (collectedAmount0 > 0) {
@@ -207,7 +207,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * It also checks that the position is a full range position.
      * @dev The position must be a full range position, meaning it covers the entire tick range.
      * @dev The function transfers the NFP ownership from the user to this contract.
-     * @dev The function assumes that the DCA token is currency0 in the PoolKey.
      */
     function list(uint256 nftId, PoolKey calldata key) external {
         PoolId poolId = key.toId();
@@ -233,7 +232,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         int24 tickLower = positionInfo.tickLower();
         int24 tickUpper = positionInfo.tickUpper();
 
-        if (tickLower != type(int24).min || tickUpper != type(int24).max) {
+        if (
+            tickLower != TickMath.minUsableTick(key.tickSpacing) || tickUpper != TickMath.maxUsableTick(key.tickSpacing) // I think this is the best way to check if the position is full range. check it please!!!
+        ) {
             revert NotFullRangePosition();
         }
         // liquidity amounts
@@ -292,7 +293,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         view
         returns (uint256 amount0, uint256 amount1)
     {
-        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(poolId);
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint160 sqrtPriceAX96 = TickMath.getSqrtPriceAtTick(tickLower);
         uint160 sqrtPriceBX96 = TickMath.getSqrtPriceAtTick(tickUpper);
 

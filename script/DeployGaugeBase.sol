@@ -16,8 +16,8 @@ import {HookMiner} from "../test/utils/HookMiner.sol";
 import {ISuperchainERC20} from "../src/interfaces/ISuperchainERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
-import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
-import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
+//import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
+//import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
 
 abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
@@ -34,7 +34,7 @@ abstract contract DeployGaugeBase is Script {
     // These addresses are placeholders and should be replaced with actual deployed contract addresses
     address public constant POSITION_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
     address public constant PROTOCOL_FEES = 0x000000000004444c5dc75cB358380D2e3De08A91;
-    address public constant ISTATE_VIEW = 0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227;
+    // address public constant ISTATE_VIEW = 0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227;
 
     struct HookConfiguration {
         address poolManager;
@@ -77,10 +77,10 @@ abstract contract DeployGaugeBase is Script {
             DCA_TOKEN,
             hookConfig.developerAddress,
             hookConfig.mintRate,
-            IPositionManager(POSITION_MANAGER),
-            IProtocolFees(PROTOCOL_FEES),
-            IStateView(ISTATE_VIEW)
+            IPositionManager(POSITION_MANAGER)
         );
+
+        // IStateView(ISTATE_VIEW)
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
@@ -91,10 +91,10 @@ abstract contract DeployGaugeBase is Script {
             DCA_TOKEN,
             hookConfig.developerAddress,
             hookConfig.mintRate,
-            IPositionManager(POSITION_MANAGER),
-            IProtocolFees(PROTOCOL_FEES),
-            IStateView(ISTATE_VIEW)
+            IPositionManager(POSITION_MANAGER)
         );
+
+        // IStateView(ISTATE_VIEW)
 
         require(address(hook) == hookAddress, "Hook address mismatch");
 
