@@ -18,10 +18,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
-//import {ProtocolFees} from "lib/v4-core/src/ProtocolFees.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
-//import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
-//import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
 import {IAllowanceTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IPositionDescriptor} from "lib/v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "lib/v4-periphery/src/interfaces/external/IWETH9.sol";
@@ -41,17 +38,11 @@ contract SuperDCAGaugeTest is Test, Deployers {
     address developer = address(0xDEADBEEF);
     uint256 mintRate = 100; // SDCA tokens per second
     MockERC20Token public weth;
-    // Addresses for the PositionManager and ProtocolFees contracts
-    // These addresses are placeholders and should be replaced with actual deployed contract addresses
-    // address public constant POSITION_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
-    // address public constant PROTOCOL_FEES = 0x000000000004444c5dc75cB358380D2e3De08A91;
-    // address public constant ISTATE_VIEW = 0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227;
     IAllowanceTransfer public constant PERMIT2 = IAllowanceTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3); // Real Permit2 address
     uint256 public constant UNSUBSCRIBE_LIMIT = 5000;
     IPositionDescriptor public tokenDescriptor;
     PositionManager public posM;
-    // ProtocolFees public pFees;
-    // IProtocolFees public protocolFees;
+   
 
     // --------------------------------------------
     // Helper Functions
@@ -128,10 +119,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
             IWETH9(address(weth))
         );
         IPositionManager positionManagerV4 = IPositionManager(address(posM));
-        // pFees = ProtocolFees(address(manager));
-        // protocolFees = IProtocolFees(address(pFees));
-        // Initialize the hook with the PositionManager and ProtocolFees
-
+        
         // Deploy the hook to an address with the correct flags
         address flags = address(
             uint160(
@@ -140,7 +128,6 @@ contract SuperDCAGaugeTest is Test, Deployers {
             ) ^ (0x4242 << 144)
         );
         bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate, positionManagerV4);
-        // IStateView(ISTATE_VIEW)
 
         deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
         hook = SuperDCAGauge(flags);

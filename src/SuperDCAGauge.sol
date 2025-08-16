@@ -15,16 +15,13 @@ import {IMsgSender} from "./interfaces/IMsgSender.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
-
-// @fawarano import
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-//import {IProtocolFees} from "@uniswap/v4-core/src/interfaces/IProtocolFees.sol";
-//import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
 import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
+import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 
 /**
  * @title SuperDCAGauge
@@ -53,8 +50,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     using TickMath for int24;
 
     IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
-    // IProtocolFees public protocolFees; // The Uniswap V4 protocol fees contract for collecting fees
-    // IStateView public stateView; // The StateView contract for reading pool state
     uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum liquidity for a position to be listed
 
     // Constants
@@ -75,13 +70,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     struct TokenAmounts {
         address token0;
         address token1;
-        address tok;
         address dcaToken;
         uint256 dcaAmount;
         uint256 tokAmount;
     }
-
     // State
+
     address public superDCAToken;
     address public developerAddress;
     uint24 public internalFee;
@@ -137,12 +131,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         address _developerAddress,
         uint256 _mintRate,
         IPositionManager _positionManagerV4
-    )
-        // IProtocolFees _protocolFees
-        // IStateView _stateView
-        // INonfungiblePositionManager _positionManager
-        BaseHook(_poolManager)
-    {
+    ) BaseHook(_poolManager) {
         superDCAToken = _superDCAToken;
         developerAddress = _developerAddress;
         internalFee = INTERNAL_POOL_FEE;
@@ -150,8 +139,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         mintRate = _mintRate;
         lastMinted = block.timestamp;
         positionManagerV4 = _positionManagerV4;
-        // protocolFees = _protocolFees;
-        //stateView = _stateView;
 
         // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -159,12 +146,14 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         _grantRole(MANAGER_ROLE, _developerAddress);
     }
 
-    /// @notice Collects fees from the Uniswap V4 position and transfers them to the recipient
-    /// @param nfpId The ID of the Non-Fungible Position (NFP) to collect fees from
-    /// @param recipient The address to which the collected fees will be sent
-    /// @dev This function collects fees from a specific Uniswap V4 position and transfers
-    /// the collected fees to the specified recipient. It uses SafeERC20 to ensure safe transfers
-    /// and emits an event for the collected fees.
+    /**
+     * @notice Collects fees from the Uniswap V4 position and transfers them to the recipient
+     * @param nfpId The ID of the Non-Fungible Position (NFP) to collect fees from
+     * @param recipient The address to which the collected fees will be sent
+     * @dev This function collects fees from a specific Uniswap V4 position and transfers
+     * the collected fees to the specified recipient
+     * and emits an event for the collected fees.
+     */
     function collectFees(uint256 nfpId, address recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (nfpId == 0) {
             revert UniswapTokenNotSet();
@@ -177,17 +166,36 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         Currency token0 = key.currency0;
         Currency token1 = key.currency1;
 
-        uint256 collectedAmount0 = poolManager.collectProtocolFees(address(this), token0, 0);
-        uint256 collectedAmount1 = poolManager.collectProtocolFees(address(this), token1, 0);
+        // tokens balances from recipient before collecting fees
+        uint256 balance0Before = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
+        uint256 balance1Before = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
 
-        // Transfer using SafeERC20
-        if (collectedAmount0 > 0) {
-            SafeERC20.safeTransfer(IERC20(Currency.unwrap(token0)), recipient, collectedAmount0);
-        }
+        // Encode actions: DECREASE_LIQUIDITY (with zero liquidity) + TAKE_PAIR
+        bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
 
-        if (collectedAmount1 > 0) {
-            SafeERC20.safeTransfer(IERC20(Currency.unwrap(token1)), recipient, collectedAmount1);
-        }
+        // Prepare parameters and encode them for each action
+        bytes[] memory params = new bytes[](2);
+
+        // DECREASE_LIQUIDITY(tokenId, liquidity=0, amount0Min=0, amount1Min=0, hookData)
+        params[0] = abi.encode(nfpId, uint256(0), uint128(0), uint128(0), bytes(""));
+        // TAKE_PAIR(currency0, currency1, recipient)
+        params[1] = abi.encode(token0, token1, recipient);
+
+        // Execute the actions by calling the PositionManager
+        uint256 deadline = block.timestamp + 60;
+
+        positionManagerV4.modifyLiquidities(abi.encode(actions, params), deadline);
+
+        // balances after collecting fees
+        uint256 balance0After = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
+        uint256 balance1After = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
+
+        // Calculate the collected amounts
+        uint256 collectedAmount0 = balance0After - balance0Before;
+        uint256 collectedAmount1 = balance1After - balance1Before;
+
+        // I WILL REMOVE THIS LINE, IT"S ONLY FOR TESTING PURPOSES
+        require(collectedAmount0 > 0 || collectedAmount1 > 0, "No fees were collected");
 
         // Emit event for collected fees
 
@@ -210,9 +218,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      */
     function list(uint256 nftId, PoolKey calldata key) external {
         PoolId poolId = key.toId();
-        TokenAmounts memory ta; // Token amounts to be used for DCA trading
-        ta.token0 = Currency.unwrap(key.currency0);
-        ta.token1 = Currency.unwrap(key.currency1);
 
         // check that the hooks address is this contrat address
         if (key.hooks != IHooks(address(this))) {
@@ -233,7 +238,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         int24 tickUpper = positionInfo.tickUpper();
 
         if (
-            tickLower != TickMath.minUsableTick(key.tickSpacing) || tickUpper != TickMath.maxUsableTick(key.tickSpacing) // I think this is the best way to check if the position is full range. check it please!!!
+            tickLower != TickMath.minUsableTick(key.tickSpacing) && tickUpper != TickMath.maxUsableTick(key.tickSpacing) // I think this is the best way to check if the position is full range. check it please!!!
         ) {
             revert NotFullRangePosition();
         }
@@ -241,15 +246,21 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         uint128 liquidity = positionManagerV4.getPositionLiquidity(nftId);
 
         (uint256 amount0, uint256 amount1) = _getAmounts(poolId, tickLower, tickUpper, liquidity);
+        TokenAmounts memory ta; // Token amounts to be used for DCA trading
+        ta.token0 = Currency.unwrap(key.currency0);
+        ta.token1 = Currency.unwrap(key.currency1);
 
+        address tok; // The token that is not the SuperDCAToken
+
+        // check that DCA token is one of the tokens in the pool and set the token amounts accordingly
         if (ta.token0 == address(superDCAToken)) {
             ta.dcaToken = ta.token0;
-            ta.tok = ta.token1;
+            tok = ta.token1;
             ta.dcaAmount = amount0;
             ta.tokAmount = amount1;
         } else if (ta.token1 == address(superDCAToken)) {
             ta.dcaToken = ta.token1;
-            ta.tok = ta.token0;
+            tok = ta.token0;
             ta.dcaAmount = amount1;
             ta.tokAmount = amount0;
         } else {
@@ -262,17 +273,17 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         }
 
         // check that the token is not already listed
-        if (isTokenListed[ta.tok]) {
+        if (isTokenListed[tok]) {
             revert TokenAlreadyListed();
         }
-        isTokenListed[ta.tok] = true;
-        tokenOfNfp[nftId] = ta.tok;
+        isTokenListed[tok] = true;
+        tokenOfNfp[nftId] = tok;
 
         // transfer the NFP ownership from user to this contract
 
         IERC721(address(positionManagerV4)).transferFrom(msg.sender, address(this), nftId);
 
-        emit TokenListed(ta.tok, nftId, key);
+        emit TokenListed(tok, nftId, key);
     }
 
     function setMinimumLiquidity(uint256 _minLiquidity) external onlyRole(DEFAULT_ADMIN_ROLE) {
