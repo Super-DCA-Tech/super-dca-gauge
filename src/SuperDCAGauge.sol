@@ -194,9 +194,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         uint256 collectedAmount0 = balance0After - balance0Before;
         uint256 collectedAmount1 = balance1After - balance1Before;
 
-        // I WILL REMOVE THIS LINE, IT"S ONLY FOR TESTING PURPOSES
-        require(collectedAmount0 > 0 || collectedAmount1 > 0, "No fees were collected");
-
         // Emit event for collected fees
 
         emit FeesCollected(
