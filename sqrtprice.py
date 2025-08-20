@@ -115,9 +115,9 @@ def run_tests():
     print("\nAll tests PASSED!")
 
 if __name__ == "__main__":
-    token0_reserve = 600000 # 0.0002344 ETH
-    token1_reserve = 1000000000000000000 # 1 DCA
-    token0_decimals = 6
+    token0_reserve = 1000000000000000000 # 1 AAVE
+    token1_reserve = 1000000000000000000000 # 1000 DCA
+    token0_decimals = 18
     token1_decimals = 18
 
     sqrt_price = calculate_sqrt_price(token0_reserve, token1_reserve, token0_decimals, token1_decimals)   
