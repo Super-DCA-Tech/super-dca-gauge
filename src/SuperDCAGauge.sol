@@ -15,6 +15,7 @@ import {IMsgSender} from "./interfaces/IMsgSender.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
  * @title SuperDCAGauge
@@ -195,7 +196,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         _updateRewardIndex();
 
         // Calculate rewards based on staked amount and reward index delta
-        uint256 rewardAmount = tokenInfo.stakedAmount * (rewardIndex - tokenInfo.lastRewardIndex) / 1e18;
+        uint256 rewardAmount = Math.mulDiv(
+            tokenInfo.stakedAmount,
+            rewardIndex - tokenInfo.lastRewardIndex,
+            1e18
+        );
         if (rewardAmount == 0) return 0;
 
         // Update last reward index
@@ -290,8 +295,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
-            // Normalize by 1e18 to maintain precision
-            rewardIndex += mintAmount * 1e18 / totalStakedAmount;
+            uint256 indexDelta = Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
+            rewardIndex += indexDelta;
             lastMinted = currentTime;
             emit RewardIndexUpdated(rewardIndex);
         }
@@ -398,10 +403,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
-            currentIndex += (mintAmount * 1e18) / totalStakedAmount;
+            uint256 indexDelta = Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
+            currentIndex += indexDelta;
         }
 
-        return (info.stakedAmount * (currentIndex - info.lastRewardIndex)) / 1e18;
+        return Math.mulDiv(info.stakedAmount, (currentIndex - info.lastRewardIndex), 1e18);
     }
 
     /**
