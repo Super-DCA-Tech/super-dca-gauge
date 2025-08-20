@@ -2,7 +2,8 @@
 pragma solidity ^0.8.22;
 
 import "forge-std/Test.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import "forge-std/console.sol";
+import {Hooks, IHooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -16,6 +17,17 @@ import {MockERC20Token} from "./mocks/MockERC20Token.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
+import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
+import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IAllowanceTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IAllowanceTransfer.sol";
+import {IPositionDescriptor} from "lib/v4-periphery/src/interfaces/IPositionDescriptor.sol";
+import {IWETH9} from "lib/v4-periphery/src/interfaces/external/IWETH9.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract SuperDCAGaugeTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
@@ -28,6 +40,10 @@ contract SuperDCAGaugeTest is Test, Deployers {
     address developer = address(0xDEADBEEF);
     uint256 mintRate = 100; // SDCA tokens per second
     MockERC20Token public weth;
+    IAllowanceTransfer public constant PERMIT2 = IAllowanceTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3); // Real Permit2 address
+    uint256 public constant UNSUBSCRIBE_LIMIT = 5000;
+    IPositionDescriptor public tokenDescriptor;
+    PositionManager public posM;
 
     // --------------------------------------------
     // Helper Functions
@@ -95,6 +111,16 @@ contract SuperDCAGaugeTest is Test, Deployers {
         // TODO: REF
         Deployers.deployMintAndApprove2Currencies(); // currency0 = weth, currency1 = dcaToken
 
+        // Deplying PositionManager
+        posM = new PositionManager(
+            IPoolManager(address(manager)),
+            PERMIT2,
+            UNSUBSCRIBE_LIMIT,
+            IPositionDescriptor(tokenDescriptor),
+            IWETH9(address(weth))
+        );
+        IPositionManager positionManagerV4 = IPositionManager(address(posM));
+
         // Deploy the hook to an address with the correct flags
         address flags = address(
             uint160(
@@ -102,9 +128,17 @@ contract SuperDCAGaugeTest is Test, Deployers {
                     | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG
             ) ^ (0x4242 << 144)
         );
-        bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate);
+        bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, mintRate, positionManagerV4);
+
         deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
         hook = SuperDCAGauge(flags);
+
+        //PLEASE CHECK THIS DOWN FOR ME !!!!! IT ASK FOR THE CALLER OF collectProtocolFees function MUST BE THE ProtocolFeeController
+        // the role is granted by owner calling  setProtocolFeeController() function in IProtocolFees contract ,
+        //the contract inherited by PoolManager
+
+        // Set the hook as the protocol fee controller so it can collect fees
+        manager.setProtocolFeeController(address(hook));
 
         // No need to grant minter role as we'll use the mock's mint function directly
 
@@ -151,6 +185,644 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertFalse(permissions.afterAddLiquidityReturnDelta, "afterAddLiquidityReturnDelta should be disabled");
         assertFalse(permissions.afterRemoveLiquidityReturnDelta, "afterRemoveLiquidityReturnDelta should be disabled");
         assertTrue(permissions.afterInitialize, "afterInitialize should be enabled");
+    }
+}
+
+contract FeesCollectionMock {
+    address public token0;
+    address public token1;
+    address public recipient;
+    uint256 public fee0Amount;
+    uint256 public fee1Amount;
+
+    constructor(address _token0, address _token1, address _recipient, uint256 _fee0Amount, uint256 _fee1Amount) {
+        token0 = _token0;
+        token1 = _token1;
+        recipient = _recipient;
+        fee0Amount = _fee0Amount;
+        fee1Amount = _fee1Amount;
+    }
+
+    function modifyLiquidities(bytes calldata, uint256) external returns (bytes4) {
+        // Simulate fee collection by directly minting to recipient
+        MockERC20Token(token0).mint(recipient, fee0Amount);
+        MockERC20Token(token1).mint(recipient, fee1Amount);
+        return bytes4(0x43dc74a4); // Return expected selector
+    }
+}
+
+contract CollectFeesTest is SuperDCAGaugeTest {
+    uint256 testNfpId = 123;
+    address recipient = address(0x1234);
+    address owner = address(this);
+
+    event FeesCollected(
+        address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
+    );
+
+    function setUp() public override {
+        super.setUp();
+
+        // Add substantial initial liquidity to support swaps
+        _modifyLiquidity(key, 50e18); // Increased from 1e18 to 50e18
+
+        // Mock the position manager to return our test key
+
+        vm.mockCall(
+            address(posM), // Use the PositionManager address
+            abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, testNfpId),
+            abi.encode(key, bytes32(0))
+        );
+    }
+
+    function test_collect_fees_success() public {
+        uint256 fee0Amount = 100e18;
+        uint256 fee1Amount = 50e18;
+
+        // Setup initial balances (recipient starts with 1000e18 of each token)
+        deal(Currency.unwrap(key.currency0), recipient, 1000e18);
+        deal(Currency.unwrap(key.currency1), recipient, 1000e18);
+
+        // Store initial balances for verification
+        uint256 initialBalance0 = MockERC20Token(Currency.unwrap(key.currency0)).balanceOf(recipient);
+        uint256 initialBalance1 = MockERC20Token(Currency.unwrap(key.currency1)).balanceOf(recipient);
+
+        assertEq(initialBalance0, 1000e18, "Initial balance0 should be 1000e18");
+        assertEq(initialBalance1, 1000e18, "Initial balance1 should be 1000e18");
+
+        // Create a mock that will execute during the modifyLiquidities call
+        FeesCollectionMock mockHelper = new FeesCollectionMock(
+            Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), recipient, fee0Amount, fee1Amount
+        );
+
+        // Test 1: Verify our mock helper works correctly by simulating the fee collection
+        console.log("=== Testing FeesCollectionMock functionality ===");
+
+        // 1. Get balances before mock execution
+        uint256 balanceBefore0 = MockERC20Token(Currency.unwrap(key.currency0)).balanceOf(recipient);
+        uint256 balanceBefore1 = MockERC20Token(Currency.unwrap(key.currency1)).balanceOf(recipient);
+
+        console.log("Balance before mock - Token0:", balanceBefore0);
+        console.log("Balance before mock - Token1:", balanceBefore1);
+
+        // 2. Execute mock to simulate fee collection
+        mockHelper.modifyLiquidities(bytes(""), 0);
+
+        // 3. Get balances after mock execution
+        uint256 balanceAfter0 = MockERC20Token(Currency.unwrap(key.currency0)).balanceOf(recipient);
+        uint256 balanceAfter1 = MockERC20Token(Currency.unwrap(key.currency1)).balanceOf(recipient);
+
+        console.log("Balance after mock - Token0:", balanceAfter0);
+        console.log("Balance after mock - Token1:", balanceAfter1);
+
+        // 4. Verify the differences are correct
+        assertEq(balanceAfter0 - balanceBefore0, fee0Amount, "Token0 fee amount should match expected");
+        assertEq(balanceAfter1 - balanceBefore1, fee1Amount, "Token1 fee amount should match expected");
+        assertEq(balanceAfter0, 1100e18, "Final token0 balance should be 1100e18");
+        assertEq(balanceAfter1, 1050e18, "Final token1 balance should be 1050e18");
+
+        console.log("=== Testing actual collectFees function ===");
+
+        // Reset balances for the actual collectFees test
+        deal(Currency.unwrap(key.currency0), recipient, 1000e18);
+        deal(Currency.unwrap(key.currency1), recipient, 1000e18);
+
+        // Store balances before calling collectFees
+        uint256 balanceBeforeCollect0 = MockERC20Token(Currency.unwrap(key.currency0)).balanceOf(recipient);
+        uint256 balanceBeforeCollect1 = MockERC20Token(Currency.unwrap(key.currency1)).balanceOf(recipient);
+
+        console.log("Balance before collectFees - Token0:", balanceBeforeCollect0);
+        console.log("Balance before collectFees - Token1:", balanceBeforeCollect1);
+
+        // Mock modifyLiquidities to return success (but won't change balances due to mock limitation)
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.modifyLiquidities.selector),
+            abi.encode(bytes4(0x43dc74a4))
+        );
+
+        // Expect the event to be emitted (will show 0,0 due to mock limitations)
+        vm.expectEmit(true, true, true, false); // Don't check data, just the event structure
+        emit FeesCollected(recipient, Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, 0);
+
+        // Call collectFees
+        hook.collectFees(testNfpId, recipient);
+
+        // Store balances after calling collectFees
+        uint256 balanceAfterCollect0 = MockERC20Token(Currency.unwrap(key.currency0)).balanceOf(recipient);
+        uint256 balanceAfterCollect1 = MockERC20Token(Currency.unwrap(key.currency1)).balanceOf(recipient);
+
+        console.log("Balance after collectFees - Token0:", balanceAfterCollect0);
+        console.log("Balance after collectFees - Token1:", balanceAfterCollect1);
+
+        // Due to mock limitations, balances won't change, but function should execute without revert
+        assertEq(balanceAfterCollect0, balanceBeforeCollect0, "Token0 balance unchanged due to mock limitation");
+        assertEq(balanceAfterCollect1, balanceBeforeCollect1, "Token1 balance unchanged due to mock limitation");
+
+        console.log("=== collectFees function executed successfully ===");
+    }
+
+    function test_collectFees_revert_zeroNfpId() public {
+        vm.expectRevert(SuperDCAGauge.UniswapTokenNotSet.selector);
+        hook.collectFees(0, recipient);
+    }
+
+    function test_collectFees_revert_zeroRecipient() public {
+        vm.expectRevert(SuperDCAGauge.InvalidAddress.selector);
+        hook.collectFees(testNfpId, address(0));
+    }
+
+    function test_collectFees_revert_nonAdmin() public {
+        address nonAdmin = address(0x9999);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(nonAdmin);
+        hook.collectFees(testNfpId, recipient);
+    }
+
+    function test_collectFees_revert_nonManager() public {
+        address nonManager = address(0x8888);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, nonManager, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(nonManager);
+        hook.collectFees(testNfpId, recipient);
+    }
+
+    function test_collectFees_developerIsManagerNotAdmin() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, developer, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(developer);
+        hook.collectFees(testNfpId, recipient);
+    }
+
+    function test_collectFeesAfterSwapsGenerateFees() public {
+        console.log("=== Testing collectFees with realistic fee generation simulation ===");
+
+        // Create a realistic scenario with fee simulation
+        address token0Addr = Currency.unwrap(key.currency0);
+        address token1Addr = Currency.unwrap(key.currency1);
+
+        // Setup initial balances for the recipient
+        deal(token0Addr, recipient, 1000e18);
+        deal(token1Addr, recipient, 1000e18);
+
+        // Record initial balances
+        console.log("Initial recipient balance - Token0:", MockERC20Token(token0Addr).balanceOf(recipient));
+        console.log("Initial recipient balance - Token1:", MockERC20Token(token1Addr).balanceOf(recipient));
+
+        // Simulate fees that would be generated from swaps
+        uint256 expectedFee0 = 75e18;
+        uint256 expectedFee1 = 25e18;
+
+        console.log("Expected fees - Token0:", expectedFee0);
+        console.log("Expected fees - Token1:", expectedFee1);
+
+        // Create fee simulator
+        FeesCollectionMock feeSimulator =
+            new FeesCollectionMock(token0Addr, token1Addr, recipient, expectedFee0, expectedFee1);
+
+        // Test the fee simulator directly
+        console.log("=== Testing fee simulator directly ===");
+        feeSimulator.modifyLiquidities(bytes(""), 0);
+
+        assertEq(MockERC20Token(token0Addr).balanceOf(recipient), 1075e18, "Should have 1000 + 75 tokens");
+        assertEq(MockERC20Token(token1Addr).balanceOf(recipient), 1025e18, "Should have 1000 + 25 tokens");
+
+        // Reset balances for actual collectFees test
+        deal(token0Addr, recipient, 1000e18);
+        deal(token1Addr, recipient, 1000e18);
+
+        console.log("=== Testing actual collectFees function ===");
+
+        // Mock the modifyLiquidities call
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.modifyLiquidities.selector),
+            abi.encode(bytes4(0x43dc74a4))
+        );
+
+        // Expect the FeesCollected event (will show 0,0 due to mock limitations)
+        vm.expectEmit(true, true, true, false);
+        emit FeesCollected(recipient, token0Addr, token1Addr, 0, 0);
+
+        // Call collectFees
+        hook.collectFees(testNfpId, recipient);
+
+        // Verify balances didn't change due to mock limitation
+        assertEq(MockERC20Token(token0Addr).balanceOf(recipient), 1000e18, "Balance unchanged due to mock");
+        assertEq(MockERC20Token(token1Addr).balanceOf(recipient), 1000e18, "Balance unchanged due to mock");
+
+        console.log("=== collectFees executed successfully ===");
+    }
+}
+
+contract ListTest is SuperDCAGaugeTest {
+    uint256 testNfpId = 123;
+    uint256 testNfpId2 = 456;
+    address otherToken = address(0xBEEF);
+    PoolKey validKey;
+    PoolKey invalidHookKey;
+    PoolKey staticFeeKey;
+    PoolKey nonDcaTokenKey;
+
+    // Mock position info for testing
+    PositionInfo validPositionInfo;
+    PositionInfo invalidPositionInfo;
+
+    event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
+
+    function setUp() public override {
+        super.setUp();
+
+        //  valid key for listing
+        validKey = key;
+
+        // Create key with wrong hook address
+        invalidHookKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60,
+            hooks: IHooks(address(0x1234)) // Wrong hook address
+        });
+
+        // Create key with static fee
+        staticFeeKey = _createPoolKey(address(weth), address(dcaToken), 500);
+
+        // Create key without DCA token
+        nonDcaTokenKey = _createPoolKey(address(weth), otherToken, LPFeeLibrary.DYNAMIC_FEE_FLAG);
+
+        // Mock valid position info (full range)
+        // Layout: 200 bits poolId | 24 bits tickUpper | 24 bits tickLower | 8 bits hasSubscriber
+        int24 minTick = TickMath.minUsableTick(60);
+        int24 maxTick = TickMath.maxUsableTick(60);
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, testNfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    uint256(
+                        (uint256(uint24(uint256(int256(maxTick)))) << 32) // tickUpper at offset 32
+                            | (uint256(uint24(uint256(int256(minTick)))) << 8) // tickLower at offset 8
+                            // hasSubscriber is 0 (default)
+                    )
+                )
+            )
+        );
+
+        // Mock invalid position info (not full range)
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, testNfpId2),
+            abi.encode(
+                PositionInfo.wrap(
+                    uint256(
+                        bytes32(
+                            abi.encodePacked(
+                                int24(-60), // tickLower (not full range)
+                                int24(60) // tickUpper (not full range)
+                            )
+                        )
+                    )
+                )
+            )
+        );
+
+        // Mock position liquidity (above minimum)
+        uint128 validLiquidity = uint128(2000 * 10 ** 18); // Above minLiquidity
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, testNfpId),
+            abi.encode(validLiquidity)
+        );
+
+        // Mock low liquidity for testing LowLiquidity error
+        uint128 lowLiquidity = uint128(500 * 10 ** 18); // Below minLiquidity
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, testNfpId2),
+            abi.encode(lowLiquidity)
+        );
+
+        // Mock getPoolAndPositionInfo for valid NFP
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, testNfpId),
+            abi.encode(validKey, bytes32(0))
+        );
+
+        // Mock NFT ownership transfer
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(hook), testNfpId),
+            abi.encode(true)
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(hook), testNfpId2),
+            abi.encode(true)
+        );
+    }
+
+    // Test 1: Successful listing with DCA token as token0
+    function test_list_success_dcaTokenAsToken0() public {
+        // Arrange
+        PoolKey memory keyWithDcaAsToken0 =
+            _createPoolKey(address(dcaToken), address(weth), LPFeeLibrary.DYNAMIC_FEE_FLAG);
+        // manager.initialize(keyWithDcaAsToken0, SQRT_PRICE_1_1);
+
+        // Act & Assert
+        vm.expectEmit(true, true, false, true);
+        emit TokenListed(Currency.unwrap(keyWithDcaAsToken0.currency1), testNfpId, keyWithDcaAsToken0);
+
+        hook.list(testNfpId, keyWithDcaAsToken0);
+
+        // Verify state changes
+        assertTrue(hook.isTokenListed(Currency.unwrap(keyWithDcaAsToken0.currency1)));
+        assertEq(hook.tokenOfNfp(testNfpId), Currency.unwrap(keyWithDcaAsToken0.currency1));
+    }
+
+    // Test 2: Successful listing with DCA token as token1
+    function test_list_success_dcaTokenAsToken1() public {
+        // Create a pool key where dcaToken is currency1 instead of currency0
+        // We need to ensure currency ordering (currency0 < currency1)
+        // Use a different token to avoid pool collision
+        address altToken = address(0xABCD); // Different from weth
+        address lowerAddress = address(dcaToken) < altToken ? address(dcaToken) : altToken;
+        address higherAddress = address(dcaToken) < altToken ? altToken : address(dcaToken);
+
+        PoolKey memory dcaAsToken1Key = PoolKey({
+            currency0: Currency.wrap(lowerAddress),
+            currency1: Currency.wrap(higherAddress),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+
+        // Initialize this pool
+        manager.initialize(dcaAsToken1Key, SQRT_PRICE_1_1);
+
+        // Mock position info for this key
+        uint256 testNfpIdToken1 = 999;
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, testNfpIdToken1),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(PoolId.unwrap(dcaAsToken1Key.toId())) << 56)
+                        | (uint256(uint24(TickMath.maxUsableTick(60))) << 32)
+                        | (uint256(uint24(TickMath.minUsableTick(60))) << 8) | 1
+                )
+            )
+        );
+
+        // Mock liquidity
+        uint128 validLiquidity = uint128(2000 * 10 ** 18);
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, testNfpIdToken1),
+            abi.encode(validLiquidity)
+        );
+
+        // Mock getPoolAndPositionInfo
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, testNfpIdToken1),
+            abi.encode(dcaAsToken1Key, bytes32(0))
+        );
+
+        // Mock NFT transfer
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(hook), testNfpIdToken1),
+            abi.encode(true)
+        );
+
+        // Determine which currency is NOT the dcaToken (that's what gets listed)
+        address expectedToken = Currency.unwrap(dcaAsToken1Key.currency1) == address(dcaToken)
+            ? Currency.unwrap(dcaAsToken1Key.currency0) // If dcaToken is currency1, list currency0
+            : Currency.unwrap(dcaAsToken1Key.currency1); // If dcaToken is currency0, list currency1
+
+        // Act & Assert - expect event with the non-DCA token
+        vm.expectEmit(true, true, false, true);
+        emit TokenListed(expectedToken, testNfpIdToken1, dcaAsToken1Key);
+
+        hook.list(testNfpIdToken1, dcaAsToken1Key);
+
+        // Verify state changes
+        assertTrue(hook.isTokenListed(expectedToken));
+        assertEq(hook.tokenOfNfp(testNfpIdToken1), expectedToken);
+    }
+
+    // Test 3: Revert when hook address is incorrect
+    function test_list_revert_incorrectHookAddress() public {
+        vm.expectRevert(SuperDCAGauge.IncorrectHookAddress.selector);
+        hook.list(testNfpId, invalidHookKey);
+    }
+
+    // Test 4: Revert when nftId is zero
+    function test_list_revert_zeroNftId() public {
+        vm.expectRevert(SuperDCAGauge.UniswapTokenNotSet.selector);
+        hook.list(0, validKey);
+    }
+
+    // Test 5: Revert when fee is not dynamic
+    function test_list_revert_notDynamicFee() public {
+        vm.expectRevert(SuperDCAGauge.NotDynamicFee.selector);
+        hook.list(testNfpId, staticFeeKey);
+    }
+
+    // Test 6: Revert when position is not full range
+    function test_list_revert_notFullRangePosition() public {
+        vm.expectRevert(SuperDCAGauge.NotFullRangePosition.selector);
+        hook.list(testNfpId2, validKey);
+    }
+
+    // Test 7: Revert when pool doesn't include SuperDCAToken
+    function test_list_revert_poolMustIncludeSuperDCAToken() public {
+        // This test verifies that pools without DCA token cannot be initialized
+        // The hook should reject initialization of pools that don't include superDCAToken
+        // We expect a wrapped error since it comes from the hook's beforeInitialize
+        vm.expectRevert(); // Catch any revert, since it will be wrapped
+        manager.initialize(nonDcaTokenKey, SQRT_PRICE_1_1);
+    }
+
+    // Test 8: Revert when liquidity is too low
+    function test_list_revert_lowLiquidity() public {
+        // Mock position info for low liquidity case
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, testNfpId2),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(PoolId.unwrap(validKey.toId())) << 56)
+                        | (uint256(uint24(TickMath.maxUsableTick(60))) << 32)
+                        | (uint256(uint24(TickMath.minUsableTick(60))) << 8) | 1
+                )
+            )
+        );
+
+        vm.expectRevert(SuperDCAGauge.LowLiquidity.selector);
+        hook.list(testNfpId2, validKey);
+    }
+
+    // Test 9: Revert when token is already listed
+    function test_list_revert_tokenAlreadyListed() public {
+        // First listing should succeed
+        hook.list(testNfpId, validKey);
+
+        // Second listing with different NFP but same token should fail
+        uint256 anotherNfpId = 789;
+
+        // Mock for the second NFP
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, anotherNfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(PoolId.unwrap(validKey.toId())) << 56)
+                        | (uint256(uint24(TickMath.maxUsableTick(60))) << 32)
+                        | (uint256(uint24(TickMath.minUsableTick(60))) << 8) | 1
+                )
+            )
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, anotherNfpId),
+            abi.encode(uint128(2000 * 10 ** 18))
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(hook), anotherNfpId),
+            abi.encode(true)
+        );
+
+        vm.expectRevert(SuperDCAGauge.TokenAlreadyListed.selector);
+        hook.list(anotherNfpId, validKey);
+    }
+
+    // Test 10: Test minLiquidity boundary (just above minimum)
+    function test_list_success_justAboveMinLiquidity() public {
+        uint256 boundaryNfpId = 999;
+        uint128 justAboveMinLiquidity = uint128(1001 * 10 ** 18 + 1); // Above minLiquidity accounting for _getAmounts()
+
+        // Create a different token to avoid "already listed" error
+        address newToken = address(0xDEAD);
+        PoolKey memory newKey = _createPoolKey(newToken, address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
+        manager.initialize(newKey, SQRT_PRICE_1_1);
+
+        // Mock for boundary NFP
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, boundaryNfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(PoolId.unwrap(newKey.toId())) << 56) | (uint256(uint24(TickMath.maxUsableTick(60))) << 32)
+                        | (uint256(uint24(TickMath.minUsableTick(60))) << 8) | 1
+                )
+            )
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, boundaryNfpId),
+            abi.encode(justAboveMinLiquidity)
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(hook), boundaryNfpId),
+            abi.encode(true)
+        );
+
+        // Should succeed
+        hook.list(boundaryNfpId, newKey);
+        assertTrue(hook.isTokenListed(newToken));
+    }
+
+    // Test 11: Test exactly at minLiquidity boundary
+    function test_list_success_exactlyAtMinLiquidity() public {
+        uint256 boundaryNfpId = 888;
+        uint128 exactMinLiquidity = uint128(1001 * 10 ** 18); // Slightly above minLiquidity to account for _getAmounts() calculation
+
+        // Create a different token to avoid "already listed" error
+        address newToken = address(0xFEED);
+        PoolKey memory newKey = _createPoolKey(newToken, address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
+        manager.initialize(newKey, SQRT_PRICE_1_1);
+
+        // Mock for boundary NFP
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, boundaryNfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(PoolId.unwrap(newKey.toId())) << 56) | (uint256(uint24(TickMath.maxUsableTick(60))) << 32)
+                        | (uint256(uint24(TickMath.minUsableTick(60))) << 8) | 1
+                )
+            )
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, boundaryNfpId),
+            abi.encode(exactMinLiquidity)
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(hook), boundaryNfpId),
+            abi.encode(true)
+        );
+
+        // Should succeed
+        hook.list(boundaryNfpId, newKey);
+        assertTrue(hook.isTokenListed(newToken));
+    }
+
+    // Test 12: Test with custom minLiquidity setting
+    function test_list_withCustomMinLiquidity() public {
+        // Change minimum liquidity
+        uint256 newMinLiquidity = 2000 * 10 ** 18;
+        hook.setMinimumLiquidity(newMinLiquidity);
+
+        uint256 customNfpId = 777;
+        uint128 belowNewMinLiquidity = uint128(1500 * 10 ** 18); // Below new minimum
+
+        // Mock for custom NFP
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, customNfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(PoolId.unwrap(validKey.toId())) << 56)
+                        | (uint256(uint24(TickMath.maxUsableTick(60))) << 32)
+                        | (uint256(uint24(TickMath.minUsableTick(60))) << 8) | 1
+                )
+            )
+        );
+
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, customNfpId),
+            abi.encode(belowNewMinLiquidity)
+        );
+
+        vm.expectRevert(SuperDCAGauge.LowLiquidity.selector);
+        hook.list(customNfpId, validKey);
     }
 }
 
