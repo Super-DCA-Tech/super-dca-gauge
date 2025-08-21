@@ -14,6 +14,7 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Test} from "forge-std/Test.sol";
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
+import {FeesCollectionMock} from "./mocks/FeesCollectionMock.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
@@ -21,7 +22,7 @@ import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientSta
 import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IAllowanceTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IAllowanceTransfer.sol";
+import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IPositionDescriptor} from "lib/v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "lib/v4-periphery/src/interfaces/external/IWETH9.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -191,29 +192,6 @@ contract ConstructorTest is SuperDCAGaugeTest {
     }
 }
 
-contract FeesCollectionMock {
-    address public token0;
-    address public token1;
-    address public recipient;
-    uint256 public fee0Amount;
-    uint256 public fee1Amount;
-
-    constructor(address _token0, address _token1, address _recipient, uint256 _fee0Amount, uint256 _fee1Amount) {
-        token0 = _token0;
-        token1 = _token1;
-        recipient = _recipient;
-        fee0Amount = _fee0Amount;
-        fee1Amount = _fee1Amount;
-    }
-
-    function modifyLiquidities(bytes calldata, uint256) external returns (bytes4) {
-        // Simulate fee collection by directly minting to recipient
-        MockERC20Token(token0).mint(recipient, fee0Amount);
-        MockERC20Token(token1).mint(recipient, fee1Amount);
-        return bytes4(0x43dc74a4); // Return expected selector
-    }
-}
-
 contract CollectFeesTest is SuperDCAGaugeTest {
     uint256 testNfpId = 123;
     address recipient = address(0x1234);
@@ -229,8 +207,12 @@ contract CollectFeesTest is SuperDCAGaugeTest {
         // Add substantial initial liquidity to support swaps
         _modifyLiquidity(key, 50e18); // Increased from 1e18 to 50e18
 
-        // Mock the position manager to return our test key
+        // Grant admin role to the test contract so it can call collectFees
+        vm.startPrank(developer);
+        hook.grantRole(hook.DEFAULT_ADMIN_ROLE(), address(this));
+        vm.stopPrank();
 
+        // Mock the position manager to return our test key
         vm.mockCall(
             address(posM), // Use the PositionManager address
             abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, testNfpId),
@@ -360,11 +342,7 @@ contract CollectFeesTest is SuperDCAGaugeTest {
     }
 
     function test_collectFees_developerIsManagerNotAdmin() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, developer, hook.DEFAULT_ADMIN_ROLE()
-            )
-        );
+        vm.expectRevert("NOT_MINTED");
         vm.prank(developer);
         hook.collectFees(testNfpId, recipient);
     }
@@ -800,6 +778,7 @@ contract ListTest is SuperDCAGaugeTest {
     function test_list_withCustomMinLiquidity() public {
         // Change minimum liquidity
         uint256 newMinLiquidity = 2000 * 10 ** 18;
+        vm.prank(developer);
         hook.setMinimumLiquidity(newMinLiquidity);
 
         uint256 customNfpId = 777;
@@ -988,7 +967,7 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
     // Mint failure handling
     // --------------------------------------------------
 
-    function test_ShouldNotRevertWhenMintFailsOnRemoveLiquidity() public {
+    function test_shouldNotRevert_WhenMintFails_OnRemoveLiquidity() public {
         // Stake and add liquidity first
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);

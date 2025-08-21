@@ -81,7 +81,6 @@ abstract contract DeployGaugeBase is Script {
             IPositionManager(POSITION_MANAGER)
         );
 
-
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
 
@@ -93,7 +92,6 @@ abstract contract DeployGaugeBase is Script {
             hookConfig.mintRate,
             IPositionManager(POSITION_MANAGER)
         );
-
 
         require(address(hook) == hookAddress, "Hook address mismatch");
 
