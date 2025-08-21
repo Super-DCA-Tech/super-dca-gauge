@@ -920,7 +920,7 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
     // Mint failure handling
     // --------------------------------------------------
 
-    function test_shouldNotRevert_WhenMintFails_OnAddLiquidity() public {
+    function test_ShouldNotRevertWhenMintFailsOnAddLiquidity() public {
         // Stake so that rewards can accrue
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
@@ -988,7 +988,7 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
     // Mint failure handling
     // --------------------------------------------------
 
-    function test_shouldNotRevert_WhenMintFails_OnRemoveLiquidity() public {
+    function test_ShouldNotRevertWhenMintFailsOnRemoveLiquidity() public {
         // Stake and add liquidity first
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
