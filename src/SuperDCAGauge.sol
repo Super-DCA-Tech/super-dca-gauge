@@ -196,11 +196,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         _updateRewardIndex();
 
         // Calculate rewards based on staked amount and reward index delta
-        uint256 rewardAmount = Math.mulDiv(
-            tokenInfo.stakedAmount,
-            rewardIndex - tokenInfo.lastRewardIndex,
-            1e18
-        );
+        uint256 rewardAmount = Math.mulDiv(tokenInfo.stakedAmount, rewardIndex - tokenInfo.lastRewardIndex, 1e18);
         if (rewardAmount == 0) return 0;
 
         // Update last reward index

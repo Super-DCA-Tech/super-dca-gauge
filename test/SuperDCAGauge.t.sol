@@ -338,7 +338,9 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         _modifyLiquidity(key, -1e18);
 
         // Verify developer balance unchanged from *before* this specific operation
-        assertEq(dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged after failed mint");
+        assertEq(
+            dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged after failed mint"
+        );
 
         // Verify lastMinted updated
         assertEq(hook.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
@@ -878,11 +880,9 @@ contract ReturnSuperDCATokenOwnershipTest is AccessControlTest {
 
         vm.startPrank(nonAdmin);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonAdmin, hook.DEFAULT_ADMIN_ROLE()
-            )
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonAdmin, hook.DEFAULT_ADMIN_ROLE())
         );
         hook.returnSuperDCATokenOwnership();
         vm.stopPrank();
-    }   
+    }
 }

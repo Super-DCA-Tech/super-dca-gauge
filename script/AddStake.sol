@@ -51,4 +51,4 @@ contract AddStake is Script {
 
         vm.stopBroadcast();
     }
-} 
+}

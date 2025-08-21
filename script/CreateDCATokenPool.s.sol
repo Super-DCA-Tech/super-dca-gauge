@@ -45,7 +45,7 @@ contract CreateDCATokenPool is Script {
     // - Mainnet WBTC: 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599
     address public constant TOKEN_ADDRESS = 0x63706e401c06ac8513145b7687A14804d17f814b;
 
-    // Initial pool price as sqrtPriceX96 
+    // Initial pool price as sqrtPriceX96
     // Default value represents approximately reserves of 1e18 : 1000e18
     uint160 public constant INITIAL_SQRT_PRICE_X96 = 2505414483750479311864138015696;
 
