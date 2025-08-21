@@ -48,7 +48,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
-    uint24 public constant EXTERNAL_POOL_FEE = 10000; // 1.00%
+    uint24 public constant EXTERNAL_POOL_FEE = 1000; // 0.10%
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -295,8 +295,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
-            uint256 indexDelta = Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
-            rewardIndex += indexDelta;
+            rewardIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
             lastMinted = currentTime;
             emit RewardIndexUpdated(rewardIndex);
         }
@@ -403,8 +402,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
-            uint256 indexDelta = Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
-            currentIndex += indexDelta;
+            currentIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
         }
 
         return Math.mulDiv(info.stakedAmount, (currentIndex - info.lastRewardIndex), 1e18);

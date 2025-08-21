@@ -102,7 +102,7 @@ abstract contract DeployGaugeBase is Script {
 
         // Create pool keys for both USDC/DCA and ETH/DCA pools
         PoolKey memory usdcPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) f< poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
+            currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
             currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 10,
