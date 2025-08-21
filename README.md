@@ -103,9 +103,32 @@ WETH-DCA Reward = 400 DCA * (1 - 0) = 400 DCA
 ```
 When a pool triggers a reward distribution, the `rewardIndex` is updated to the current index and that pool's share of the rewards is minted and distributed to the pool and the developer. The other pools that did not trigger a reward distribution are not affected.
 
+### Dynamic Fees
+The `SuperDCAGauge` implements a dynamic fee system using Uniswap V4's dynamic fee capability, allowing for differentiated swap fees based on the trader's classification. This feature enables preferential fee treatment for internal ecosystem participants while maintaining standard fees for external users.
+
+#### Fee Structure
+- **Internal Fee**: 0% (0 basis points) - Applied to addresses marked as "internal"
+- **External Fee**: 0.10% (1000 basis points) - Applied to all other addresses
+- **Dynamic Application**: Fees are determined at swap time based on the swapper's internal address status
+
+#### Technical Implementation
+The dynamic fee system operates through the `_beforeSwap` hook:
+
+1. **Address Classification**: The system identifies the actual swapper using `IMsgSender(sender).msgSender()` to handle cases where swaps are routed through intermediary contracts
+2. **Fee Selection**: Based on the swapper's internal address status (`isInternalAddress[swapper]`), either the internal or external fee is applied
+3. **Dynamic Override**: The selected fee is returned with the `LPFeeLibrary.OVERRIDE_FEE_FLAG` to dynamically set the pool's fee for that specific swap
+
+#### Management Functions
+The fee system includes several management capabilities restricted to the `MANAGER_ROLE`:
+
+- **`setFee(bool _isInternal, uint24 _newFee)`**: Updates either internal or external fee rates
+- **`setInternalAddress(address _user, bool _isInternal)`**: Marks or unmarks addresses as internal for preferential fee treatment
+
 ## Deployment Addresses
 | Network | Contract | Address |
 | --- | --- | --- |
-| All | [Super DCA Token](https://github.com/Super-DCA-Tech/liquidity-network) | 0xdCA0423d8a8b0e6c9d7756C16Ed73f36f1BadF54 |
+| All | Super DCA Token | 0xb1599cde32181f48f89683d3c5db5c5d2c7c93cc |
+| Base | `SuperDCAGauge` | [0xBc5F29A583a8d3ec76e03372659e01a22feE3A80](https://basescan.org/address/0xBc5F29A583a8d3ec76e03372659e01a22feE3A80) |
+| Optimism | `SuperDCAGauge` | [0xb4f4Ad63BCc0102B10e6227236e569Dce0d97A80](https://optimistic.etherscan.io/address/0xb4f4Ad63BCc0102B10e6227236e569Dce0d97A80) |
 | Base Sepolia | `SuperDCAGauge` | [0x741810C3Fb97194dEcB045E45b9920680E1d7a80](https://sepolia.basescan.org/address/0x741810C3Fb97194dEcB045E45b9920680E1d7a80) |
 | Unichain Sepolia | `SuperDCAGauge` | [0xEC67C9D1145aBb0FBBc791B657125718381DBa80](https://unichain-sepolia.blockscout.com/address/0xEC67C9D1145aBb0FBBc791B657125718381DBa80) |
