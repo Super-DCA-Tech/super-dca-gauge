@@ -1,7 +1,7 @@
 [profile.default]
   libs = ["lib"]
   out = "out"
-  solc = "0.8.26"
+  solc = "0.8.25"
   src = "src"
   test = "test"
 
