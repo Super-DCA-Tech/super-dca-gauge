@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.22;
 
+/*
+ * SuperDCAGauge Integration Tests
+ * 
+ * This test suite uses real Uniswap v4 contracts for integration testing instead of mocks.
+ * 
+ * Key Migration Changes:
+ * - CollectFeesTest: Removed FeesCollectionMock, now uses real swaps to generate fees
+ * - ListTest: Removed position mocking, now creates real positions via PositionManager
+ * - All tests validate against actual contract state and behaviors
+ * 
+ * Integration Benefits:
+ * - Tests reflect production environment behavior
+ * - Catches real integration issues that mocks would miss
+ * - Provides confidence in hook functionality with live Uniswap v4 contracts
+ * - Serves as a blueprint for end-to-end testing patterns
+ */
+
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import {Hooks, IHooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -14,7 +31,6 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Test} from "forge-std/Test.sol";
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
-import {FeesCollectionMock} from "./mocks/FeesCollectionMock.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";

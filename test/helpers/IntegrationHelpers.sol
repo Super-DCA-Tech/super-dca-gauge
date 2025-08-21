@@ -19,6 +19,27 @@ import {PositionConfig} from "lib/v4-periphery/test/shared/PositionConfig.sol";
  * @title IntegrationHelpers
  * @notice Helper functions for integration testing with real Uniswap v4 contracts
  * @dev Provides utilities to mint positions, perform swaps, and generate real fees
+ * 
+ * This contract replaces the previous mock-based testing approach with real Uniswap v4
+ * contract interactions. It enables:
+ * 
+ * 1. **Real Position Creation**: Uses the actual PositionManager to mint NFT positions
+ *    with real liquidity, replacing vm.mockCall position mocking
+ * 
+ * 2. **Genuine Fee Generation**: Performs actual swaps through SwapRouter to accumulate
+ *    real fees in positions, replacing FeesCollectionMock simulations
+ * 
+ * 3. **Authentic Validation**: Tests can validate against real position data, liquidity
+ *    amounts, and fee balances from actual Uniswap v4 state
+ * 
+ * **Integration Flow for Fee Collection Tests:**
+ * - setupPoolWithLiquidity() → mintFullRangePosition() → generateSignificantFees() → collectFees()
+ * 
+ * **Integration Flow for Position Listing Tests:**
+ * - mintFullRangePosition() / mintNarrowRangePosition() → hook.list() → validate real position data
+ * 
+ * This approach provides higher confidence that the hook works correctly with actual
+ * Uniswap v4 deployments and catches integration issues that mocks would miss.
  */
 contract IntegrationHelpers is Test {
     using CurrencyLibrary for Currency;
