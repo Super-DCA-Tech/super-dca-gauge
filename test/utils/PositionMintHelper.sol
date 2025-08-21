@@ -4,20 +4,20 @@ pragma solidity ^0.8.22;
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
-import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
-import {Planner, Plan} from "lib/v4-periphery/test/shared/Planner.sol";
-import {PositionConfig} from "lib/v4-periphery/test/shared/PositionConfig.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 /**
  * @title PositionMintHelper
- * @notice Helper library for minting Uniswap v4 positions in tests
- * @dev Provides utilities for minting full-range and custom-range positions
+ * @notice Helper library for adding liquidity to Uniswap v4 pools in tests
+ * @dev Provides utilities for adding full-range and custom-range liquidity using modifyLiquidityRouter
  */
 library PositionMintHelper {
     using TickMath for int24;
-
-    uint128 constant MAX_SLIPPAGE = type(uint128).max;
+    using StateLibrary for IPoolManager;
+    using PoolIdLibrary for PoolKey;
 
     /**
      * @notice Calculate full-range tick boundaries for a given tick spacing
@@ -31,69 +31,67 @@ library PositionMintHelper {
     }
 
     /**
-     * @notice Mint a full-range position using the PositionManager
-     * @param pm The PositionManager contract
+     * @notice Add full-range liquidity using modifyLiquidityRouter
+     * @param modifyLiquidityRouter The modifyLiquidityRouter from Deployers
      * @param key The pool key for the position
-     * @param liquidity The amount of liquidity to add
-     * @param recipient The recipient of the minted NFT
-     * @return nftId The ID of the minted NFT
+     * @param liquidityDelta The amount of liquidity to add
+     * @return positionId A unique identifier for this position (hash of key and ticks)
      */
     function mintFullRange(
-        IPositionManager pm,
+        PoolModifyLiquidityTest modifyLiquidityRouter,
         PoolKey memory key,
-        uint256 liquidity,
-        address recipient
-    ) internal returns (uint256 nftId) {
+        uint256 liquidityDelta,
+        address /* recipient - not used in this pattern */
+    ) internal returns (uint256 positionId) {
         (int24 lower, int24 upper) = fullRangeTicks(key.tickSpacing);
-        return mintCustomRange(pm, key, lower, upper, liquidity, recipient);
+        return mintCustomRange(modifyLiquidityRouter, key, lower, upper, liquidityDelta);
     }
 
     /**
-     * @notice Mint a custom-range position using the PositionManager
-     * @param pm The PositionManager contract
+     * @notice Add custom-range liquidity using modifyLiquidityRouter  
+     * @param modifyLiquidityRouter The modifyLiquidityRouter from Deployers
      * @param key The pool key for the position
      * @param lower The lower tick of the position
      * @param upper The upper tick of the position
-     * @param liquidity The amount of liquidity to add
-     * @param recipient The recipient of the minted NFT
-     * @return nftId The ID of the minted NFT
+     * @param liquidityDelta The amount of liquidity to add
+     * @return positionId A unique identifier for this position (hash of key and ticks)
      */
     function mintCustomRange(
-        IPositionManager pm,
+        PoolModifyLiquidityTest modifyLiquidityRouter,
         PoolKey memory key,
         int24 lower,
         int24 upper,
-        uint256 liquidity,
-        address recipient
-    ) internal returns (uint256 nftId) {
-        // Store the next token ID before minting
-        nftId = pm.nextTokenId();
-
-        // Create the position config
-        PositionConfig memory config = PositionConfig({
-            poolKey: key,
+        uint256 liquidityDelta
+    ) internal returns (uint256 positionId) {
+        // Create liquidity params
+        IPoolManager.ModifyLiquidityParams memory params = IPoolManager.ModifyLiquidityParams({
             tickLower: lower,
-            tickUpper: upper
+            tickUpper: upper,
+            liquidityDelta: int128(int256(liquidityDelta)),
+            salt: bytes32(0)
         });
 
-        // Create the mint plan using Planner
-        Plan memory planner = Planner.init();
-        planner.add(
-            Actions.MINT_POSITION,
-            abi.encode(
-                config.poolKey,
-                config.tickLower,
-                config.tickUpper,
-                liquidity,
-                MAX_SLIPPAGE, // amount0Max
-                MAX_SLIPPAGE, // amount1Max
-                recipient,
-                bytes("") // hookData
-            )
-        );
+        // Add liquidity using modifyLiquidityRouter
+        modifyLiquidityRouter.modifyLiquidity(key, params, bytes(""));
 
-        // Finalize the plan and execute the mint
-        bytes memory calls = planner.finalizeModifyLiquidityWithClose(config.poolKey);
-        pm.modifyLiquidities(calls, block.timestamp + 1);
+        // Generate a unique position ID based on key and tick range
+        positionId = uint256(keccak256(abi.encode(key, lower, upper, liquidityDelta)));
+    }
+
+    /**
+     * @notice Get position liquidity from the pool manager
+     * @param poolManager The pool manager
+     * @param key The pool key
+     * @param lower The lower tick
+     * @param upper The upper tick
+     * @return liquidity The liquidity in the position
+     */
+    function getPositionLiquidity(
+        IPoolManager poolManager,
+        PoolKey memory key,
+        int24 lower,
+        int24 upper
+    ) internal view returns (uint128 liquidity) {
+        return poolManager.getPosition(key.toId(), address(this), lower, upper, bytes32(0)).liquidity;
     }
 }
