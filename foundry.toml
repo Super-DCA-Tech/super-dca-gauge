@@ -1,16 +1,16 @@
 [profile.default]
-  libs = ["lib"]
-  out = "out"
-  solc = "0.8.26"
-  src = "src"
-  test = "test"
+libs = ["lib"]
+out = "out"
+solc = "0.8.26"
+src = "src"
+test = "test"
 
-  # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
-  ast = true
-  build_info = true
-  extra_output = ["storageLayout"]
-  ffi = true
+ast = true
+build_info = true
+extra_output = ["storageLayout"]
+ffi = true
 
 [rpc_endpoints]
   base = "${BASE_RPC_URL}"

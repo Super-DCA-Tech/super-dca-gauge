@@ -15,7 +15,7 @@ import {console2} from "forge-std/Test.sol";
 import {HookMiner} from "../test/utils/HookMiner.sol";
 import {ISuperchainERC20} from "../src/interfaces/ISuperchainERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 
 abstract contract DeployGaugeBase is Script {
     using CurrencyLibrary for Currency;
@@ -29,6 +29,11 @@ abstract contract DeployGaugeBase is Script {
     // Initial sqrtPriceX96 for the pools
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5174885917930467233270080641214; // 0.0002344 ETH/DCA
+
+    // Addresses for the PositionManager and ProtocolFees contracts
+    // These addresses are placeholders and should be replaced with actual deployed contract addresses
+    address public immutable POSITION_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    address public immutable PROTOCOL_FEES = 0x000000000004444c5dc75cB358380D2e3De08A91;
 
     struct HookConfiguration {
         address poolManager;
@@ -68,16 +73,27 @@ abstract contract DeployGaugeBase is Script {
         );
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs =
-            abi.encode(hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate);
+        bytes memory constructorArgs = abi.encode(
+            hookConfig.poolManager,
+            DCA_TOKEN,
+            hookConfig.developerAddress,
+            hookConfig.mintRate,
+            IPositionManager(POSITION_MANAGER)
+        );
+
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
 
         // Deploy the hook using CREATE2 with the mined salt
         hook = new SuperDCAGauge{salt: salt}(
-            IPoolManager(hookConfig.poolManager), DCA_TOKEN, hookConfig.developerAddress, hookConfig.mintRate
+            IPoolManager(hookConfig.poolManager),
+            DCA_TOKEN,
+            hookConfig.developerAddress,
+            hookConfig.mintRate,
+            IPositionManager(POSITION_MANAGER)
         );
+
 
         require(address(hook) == hookAddress, "Hook address mismatch");
 
