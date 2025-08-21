@@ -14,6 +14,7 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Test} from "forge-std/Test.sol";
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
+import {FeesCollectionMock} from "./mocks/FeesCollectionMock.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
@@ -21,7 +22,7 @@ import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientSta
 import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IAllowanceTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IAllowanceTransfer.sol";
+import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IPositionDescriptor} from "lib/v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "lib/v4-periphery/src/interfaces/external/IWETH9.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -146,6 +147,9 @@ contract SuperDCAGaugeTest is Test, Deployers {
         weth.mint(address(this), 1000e18);
         dcaToken.mint(address(this), 1000e18);
 
+        // Transfer ownership of the DCA token to the hook so the gauge can perform minting operations
+        dcaToken.transferOwnership(address(hook));
+
         // Create the pool key using the helper (fee always set to 500 here)
         key = _createPoolKey(address(weth), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
 
@@ -188,29 +192,6 @@ contract ConstructorTest is SuperDCAGaugeTest {
     }
 }
 
-contract FeesCollectionMock {
-    address public token0;
-    address public token1;
-    address public recipient;
-    uint256 public fee0Amount;
-    uint256 public fee1Amount;
-
-    constructor(address _token0, address _token1, address _recipient, uint256 _fee0Amount, uint256 _fee1Amount) {
-        token0 = _token0;
-        token1 = _token1;
-        recipient = _recipient;
-        fee0Amount = _fee0Amount;
-        fee1Amount = _fee1Amount;
-    }
-
-    function modifyLiquidities(bytes calldata, uint256) external returns (bytes4) {
-        // Simulate fee collection by directly minting to recipient
-        MockERC20Token(token0).mint(recipient, fee0Amount);
-        MockERC20Token(token1).mint(recipient, fee1Amount);
-        return bytes4(0x43dc74a4); // Return expected selector
-    }
-}
-
 contract CollectFeesTest is SuperDCAGaugeTest {
     uint256 testNfpId = 123;
     address recipient = address(0x1234);
@@ -226,8 +207,12 @@ contract CollectFeesTest is SuperDCAGaugeTest {
         // Add substantial initial liquidity to support swaps
         _modifyLiquidity(key, 50e18); // Increased from 1e18 to 50e18
 
-        // Mock the position manager to return our test key
+        // Grant admin role to the test contract so it can call collectFees
+        vm.startPrank(developer);
+        hook.grantRole(hook.DEFAULT_ADMIN_ROLE(), address(this));
+        vm.stopPrank();
 
+        // Mock the position manager to return our test key
         vm.mockCall(
             address(posM), // Use the PositionManager address
             abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, testNfpId),
@@ -357,11 +342,7 @@ contract CollectFeesTest is SuperDCAGaugeTest {
     }
 
     function test_collectFees_developerIsManagerNotAdmin() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, developer, hook.DEFAULT_ADMIN_ROLE()
-            )
-        );
+        vm.expectRevert("NOT_MINTED");
         vm.prank(developer);
         hook.collectFees(testNfpId, recipient);
     }
@@ -797,6 +778,7 @@ contract ListTest is SuperDCAGaugeTest {
     function test_list_withCustomMinLiquidity() public {
         // Change minimum liquidity
         uint256 newMinLiquidity = 2000 * 10 ** 18;
+        vm.prank(developer);
         hook.setMinimumLiquidity(newMinLiquidity);
 
         uint256 customNfpId = 777;
@@ -912,6 +894,37 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
             dcaToken.balanceOf(developer), initialDevBal, "No rewards should be distributed with zero elapsed time"
         );
     }
+
+    // --------------------------------------------------
+    // Mint failure handling
+    // --------------------------------------------------
+
+    function test_whenMintFails_onAddLiquidity() public {
+        // Stake so that rewards can accrue
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+
+        // Add initial liquidity to create the pool
+        _modifyLiquidity(key, 1e18);
+
+        // Advance time so rewards are due
+        uint256 startTime = hook.lastMinted();
+        uint256 elapsed = 20;
+        vm.warp(startTime + elapsed);
+
+        // Remove minting permissions from the gauge so that subsequent mint calls revert
+        vm.prank(developer);
+        hook.returnSuperDCATokenOwnership();
+
+        // Expect no revert even though the internal mint will fail
+        _modifyLiquidity(key, 1e18);
+
+        // Developer balance should remain unchanged
+        assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero when mint fails");
+
+        // lastMinted should still update
+        assertEq(hook.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
+    }
 }
 
 contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
@@ -948,6 +961,40 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         // Note: Can't figure out how to check the donation fees got to the pool
         // so I will verify this on the testnet work.
         // TODO: Verify this on testnet work.
+    }
+
+    // --------------------------------------------------
+    // Mint failure handling
+    // --------------------------------------------------
+
+    function test_whenMintFails_onRemoveLiquidity() public {
+        // Stake and add liquidity first
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+        _modifyLiquidity(key, 1e18);
+
+        // Advance time so rewards accrue
+        uint256 startTime = hook.lastMinted();
+        uint256 elapsed = 20;
+        vm.warp(startTime + elapsed);
+
+        // Take a snapshot of the developer's balance BEFORE the mint failure scenario
+        uint256 devBalanceBefore = dcaToken.balanceOf(developer);
+
+        // Remove minting permissions from the gauge so that mint attempts revert
+        vm.prank(developer);
+        hook.returnSuperDCATokenOwnership();
+
+        // Removing liquidity should not revert
+        _modifyLiquidity(key, -1e18);
+
+        // Verify developer balance unchanged from *before* this specific operation
+        assertEq(
+            dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged after failed mint"
+        );
+
+        // Verify lastMinted updated
+        assertEq(hook.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
     }
 }
 
@@ -1355,12 +1402,10 @@ contract AccessControlTest is SuperDCAGaugeTest {
     }
 
     function test_Should_AllowAdminToUpdateManager() public {
-        address currentAdmin = address(this);
-
         assertTrue(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Initial manager role incorrect");
         assertFalse(hook.hasRole(hook.MANAGER_ROLE(), newManagerUser), "New manager should not have role initially");
 
-        vm.prank(currentAdmin);
+        vm.prank(developer);
         hook.updateManager(managerUser, newManagerUser);
 
         assertFalse(hook.hasRole(hook.MANAGER_ROLE(), managerUser), "Old manager should lose role");
@@ -1469,73 +1514,26 @@ contract SetInternalAddressTest is AccessControlTest {
     }
 }
 
-// Note: These are commented out since the `msgSender` function is not
-// implemented in the PoolSwapTest contract.
-// TODO: https://github.com/Uniswap/v4-core/issues/967
-//
-// contract BeforeSwapTest is SuperDCAGaugeTest {
-//     using SafeCast for uint256;
+contract ReturnSuperDCATokenOwnershipTest is AccessControlTest {
+    function test_Should_ReturnOwnershipToAdmin() public {
+        // Precondition: hook should own the token
+        assertEq(dcaToken.owner(), address(hook), "Hook should own the token before return");
 
-//     function setUp() public override {
-//         super.setUp();
+        vm.prank(developer);
+        hook.returnSuperDCATokenOwnership();
 
-//         // Add initial liquidity to the pool
-//         _modifyLiquidity(key, 100e18); // Add substantial liquidity
-//     }
+        // Postcondition: admin owns the token
+        assertEq(dcaToken.owner(), developer, "Developer should own the token after return");
+    }
 
-//     // Helper function for swapping dcaToken for weth using poolManager directly
-//     function _swapDCAForWETH_PoolManager(address user, uint256 amountIn) internal returns (BalanceDelta) {
-//         vm.startPrank(user);
+    function test_RevertWhen_NonAdminCalls() public {
+        address nonAdmin = makeAddr("nonAdmin");
 
-//         // 1. User sends input token (dcaToken) to the poolManager
-//         dcaToken.transfer(address(manager), amountIn);
-
-//         // 2. User calls swap on poolManager
-//         // Prank as user again for the swap call itself
-//         BalanceDelta delta = swap(key, false, int256(amountIn), ZERO_BYTES);
-
-//         vm.stopPrank();
-
-//         return delta;
-//     }
-
-//     function test_BeforeSwap_AppliesFeesCorrectly_ForInternalUser() public {
-//         // Mark internalUser
-//         vm.prank(developer);
-//         hook.setInternalAddress(address(this), true);
-
-//         uint256 currency1Before = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // Setup and swap
-//         bool zeroForOne = true;
-//         int256 amountSpecified = -1e10;
-//         swapRouter.setMsgSender(address(this));
-//         dcaToken.approve(address(swapRouter), 1e10);
-//         swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
-
-//         uint256 currency1After = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // the fee is 0.05% so we should receive approximately 0.9995 of currency1
-//         assertEq(currency1After - currency1Before, uint256(0.9995e10 - 1));
-//     }
-
-//     function test_BeforeSwap_AppliesFeesCorrectly_ForExternalUser() public {
-//         // Mark externalUser
-//         vm.prank(developer);
-//         hook.setInternalAddress(address(this), false);
-
-//         uint256 currency1Before = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // Setup and swap
-//         int256 amountSpecified = -1e10;
-//         bool zeroForOne = true;
-//         swapRouter.setMsgSender(address(this));
-//         dcaToken.approve(address(swapRouter), 1e10);
-//         swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
-
-//         uint256 currency1After = Currency.wrap(address(weth)).balanceOfSelf();
-
-//         // the fee is 0.50% so we should receive approximately 0.9950 of currency1
-//         assertEq(currency1After - currency1Before, uint256(0.995e10 - 1));
-//     }
-// }
+        vm.startPrank(nonAdmin);
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonAdmin, hook.DEFAULT_ADMIN_ROLE())
+        );
+        hook.returnSuperDCATokenOwnership();
+        vm.stopPrank();
+    }
+}

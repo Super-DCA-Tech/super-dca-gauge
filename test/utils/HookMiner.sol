@@ -27,9 +27,9 @@ library HookMiner {
 
         uint256 salt;
         for (salt; salt < MAX_LOOP; salt++) {
-            hookAddress = computeAddress(deployer, salt, creationCodeWithArgs);
+            hookAddress = computeAddress(deployer, salt + 100_000, creationCodeWithArgs);
             if (uint160(hookAddress) & FLAG_MASK == flags && hookAddress.code.length == 0) {
-                return (hookAddress, bytes32(salt));
+                return (hookAddress, bytes32(salt + 100_000));
             }
         }
         revert("HookMiner: could not find salt");

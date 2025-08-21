@@ -7,6 +7,16 @@ contract MockERC20Token {
     uint8 public decimals;
     uint256 public totalSupply;
 
+    // ----------------------------------
+    // Ownership (Ownable lite)
+    // ----------------------------------
+    address public owner;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "MockERC20Token: caller is not the owner");
+        _;
+    }
+
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
@@ -18,6 +28,8 @@ contract MockERC20Token {
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
+
+        owner = msg.sender;
     }
 
     function __setShouldRevertOnNextCall(bool _shouldRevert) external {
@@ -53,7 +65,15 @@ contract MockERC20Token {
     }
 
     function mint(address to, uint256 amount) external {
+        // Only the owner can mint new tokens
+        require(msg.sender == owner, "MockERC20Token: caller is not the owner");
+
         totalSupply += amount;
         balanceOf[to] += amount;
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "MockERC20Token: new owner is the zero address");
+        owner = newOwner;
     }
 }

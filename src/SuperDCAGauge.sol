@@ -15,6 +15,7 @@ import {IMsgSender} from "./interfaces/IMsgSender.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
@@ -40,6 +41,11 @@ import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
  * - Individual rewards = staked_amount * (current_index - last_claim_index)
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
+ *
+ * Beta Test Scaffolding:
+ * - The Super DCA Token is only mintable by the owner (changes in the future)
+ * - A MINTER role is added for the Superchain ERC20 version of the Super DCA Token
+ * - The developer address is set to superdca.eth
  */
 contract SuperDCAGauge is BaseHook, AccessControl {
     using LPFeeLibrary for uint24;
@@ -53,8 +59,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum liquidity for a position to be listed
 
     // Constants
-    uint24 public constant INTERNAL_POOL_FEE = 500; // 0.05%
-    uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
+    uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
+    uint24 public constant EXTERNAL_POOL_FEE = 1000; // 0.10%
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -99,6 +105,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     event RewardIndexUpdated(uint256 newIndex);
     event InternalAddressUpdated(address indexed user, bool isInternal);
     event FeeUpdated(bool indexed isInternal, uint24 oldFee, uint24 newFee);
+    event SuperDCATokenOwnershipReturned(address indexed newOwner);
     event FeesCollected(
         address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
     );
@@ -140,9 +147,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         lastMinted = block.timestamp;
         positionManagerV4 = _positionManagerV4;
 
-        // Grant the deployer the default admin role: it's often useful for initial setup and role granting/revoking
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        // Grant the developer the manager role
+        _grantRole(DEFAULT_ADMIN_ROLE, _developerAddress);
+        // Grant the developer the manager role to control the mint rate and fees
         _grantRole(MANAGER_ROLE, _developerAddress);
     }
 
@@ -390,7 +396,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         _updateRewardIndex();
 
         // Calculate rewards based on staked amount and reward index delta
-        uint256 rewardAmount = tokenInfo.stakedAmount * (rewardIndex - tokenInfo.lastRewardIndex) / 1e18;
+        uint256 rewardAmount = Math.mulDiv(tokenInfo.stakedAmount, rewardIndex - tokenInfo.lastRewardIndex, 1e18);
         if (rewardAmount == 0) return 0;
 
         // Update last reward index
@@ -414,8 +420,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         // Check if pool has liquidity before proceeding with donation
         uint128 liquidity = IPoolManager(msg.sender).getLiquidity(key.toId());
         if (liquidity == 0) {
-            // If no liquidity, just send everything to developer
-            ISuperchainERC20(superDCAToken).mint(developerAddress, rewardAmount);
+            // If no liquidity, try sending everything to developer (do not revert if mint fails)
+            _tryMint(developerAddress, rewardAmount);
             return;
         }
 
@@ -423,21 +429,21 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         uint256 developerShare = rewardAmount / 2;
         uint256 communityShare = rewardAmount - developerShare;
 
-        // Mint developer share
-        ISuperchainERC20(superDCAToken).mint(developerAddress, developerShare);
+        // Mint developer share (ignore failure)
+        _tryMint(developerAddress, developerShare);
 
-        // Mint community share and donate to pool
-        ISuperchainERC20(superDCAToken).mint(address(poolManager), communityShare);
+        // Mint community share and donate to pool only if mint succeeds
+        if (_tryMint(address(poolManager), communityShare)) {
+            // Donate community share to pool
+            if (superDCAToken == Currency.unwrap(key.currency0)) {
+                IPoolManager(msg.sender).donate(key, communityShare, 0, hookData);
+            } else {
+                IPoolManager(msg.sender).donate(key, 0, communityShare, hookData);
+            }
 
-        // Donate community share to pool
-        if (superDCAToken == Currency.unwrap(key.currency0)) {
-            IPoolManager(msg.sender).donate(key, communityShare, 0, hookData);
-        } else {
-            IPoolManager(msg.sender).donate(key, 0, communityShare, hookData);
+            // Settle the donation only if mint and donate succeed
+            poolManager.settle();
         }
-
-        // Settle the donation
-        poolManager.settle();
 
         /// @dev: At this point, there are DCA tokens left in the hook for the other pools.
     }
@@ -485,8 +491,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
-            // Normalize by 1e18 to maintain precision
-            rewardIndex += mintAmount * 1e18 / totalStakedAmount;
+            rewardIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
             lastMinted = currentTime;
             emit RewardIndexUpdated(rewardIndex);
         }
@@ -593,10 +598,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
         if (elapsed > 0) {
             uint256 mintAmount = elapsed * mintRate;
-            currentIndex += (mintAmount * 1e18) / totalStakedAmount;
+            currentIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
         }
 
-        return (info.stakedAmount * (currentIndex - info.lastRewardIndex)) / 1e18;
+        return Math.mulDiv(info.stakedAmount, (currentIndex - info.lastRewardIndex), 1e18);
     }
 
     /**
@@ -643,5 +648,31 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         require(_user != address(0), "Cannot set zero address");
         isInternalAddress[_user] = _isInternal;
         emit InternalAddressUpdated(_user, _isInternal);
+    }
+
+    /**
+     * @notice Returns the ownership of the Super DCA token back to the admin (DEFAULT_ADMIN_ROLE).
+     * @dev The gauge contract must currently be the owner of the token. After the call, the admin
+     *      (msg.sender) becomes the new owner. Can only be invoked by an account that has the
+     *      DEFAULT_ADMIN_ROLE on the gauge.
+     */
+    function returnSuperDCATokenOwnership() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        ISuperchainERC20(superDCAToken).transferOwnership(msg.sender);
+        emit SuperDCATokenOwnershipReturned(msg.sender);
+    }
+
+    /**
+     * @notice Safely attempts to mint tokens, returning false if the call reverts.
+     * @param to The address to mint tokens to.
+     * @param amount The amount of tokens to mint.
+     * @return success True if minting succeeded, false otherwise.
+     */
+    function _tryMint(address to, uint256 amount) internal returns (bool success) {
+        if (amount == 0) return true;
+        try ISuperchainERC20(superDCAToken).mint(to, amount) {
+            return true;
+        } catch {
+            return false;
+        }
     }
 }
