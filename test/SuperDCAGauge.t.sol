@@ -19,8 +19,6 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {SuperDCAGaugeV2} from "./SuperDCAGaugeV2.sol";
 
-
-
 contract SuperDCAGaugeTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -32,7 +30,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
     address developer = address(0xDEADBEEF);
     uint256 mintRate = 100; // SDCA tokens per second
     MockERC20Token public weth;
-    address admin = address(0x1); 
+    address admin = address(0x1);
     address pauser = address(0x2);
 
     // --------------------------------------------
@@ -108,19 +106,13 @@ contract SuperDCAGaugeTest is Test, Deployers {
                     | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG
             ) ^ (0x4242 << 144)
         );
-       
+
         address impl = address(new SuperDCAGauge());
 
-        bytes memory initData = abi.encodeCall(
-            SuperDCAGauge.initialize,
-            (manager, address(dcaToken), developer, admin, pauser, mintRate)
-        );
+        bytes memory initData =
+            abi.encodeCall(SuperDCAGauge.initialize, (manager, address(dcaToken), developer, admin, pauser, mintRate));
 
-        deployCodeTo(
-            "ERC1967Proxy.sol:ERC1967Proxy",
-            abi.encode(impl, initData),
-            flags
-        );
+        deployCodeTo("ERC1967Proxy.sol:ERC1967Proxy", abi.encode(impl, initData), flags);
 
         hook = SuperDCAGauge(flags);
 
@@ -824,8 +816,8 @@ contract UpgradeSuperDCAGaugeTest is SuperDCAGaugeTest {
         uint256 stakeAmount = 42e18;
         _stake(address(weth), stakeAmount);
 
-        uint256 stakedBefore  = hook.totalStakedAmount();
-        uint256 indexBefore   = hook.rewardIndex();
+        uint256 stakedBefore = hook.totalStakedAmount();
+        uint256 indexBefore = hook.rewardIndex();
 
         /* ---------- act: compile V2 and upgrade the proxy ---------- */
         // The contract must be compiled, so we reference it.
@@ -845,8 +837,8 @@ contract UpgradeSuperDCAGaugeTest is SuperDCAGaugeTest {
         assertEq(upgraded.version(), "V2");
 
         // 2) old state is intact
-        assertEq(upgraded.totalStakedAmount(), stakedBefore,  "stake should persist");
-        assertEq(upgraded.rewardIndex(), indexBefore,  "rewardIndex should persist");
+        assertEq(upgraded.totalStakedAmount(), stakedBefore, "stake should persist");
+        assertEq(upgraded.rewardIndex(), indexBefore, "rewardIndex should persist");
     }
 }
 

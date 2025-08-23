@@ -22,7 +22,13 @@ contract DeployGaugeBaseSepolia is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({poolManager: POOL_MANAGER, developerAddress: DEVELOPER, adminAddress: ADMIN, pauserAddress: PAUSER, mintRate: MINT_RATE});
+        return HookConfiguration({
+            poolManager: POOL_MANAGER,
+            developerAddress: DEVELOPER,
+            adminAddress: ADMIN,
+            pauserAddress: PAUSER,
+            mintRate: MINT_RATE
+        });
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {

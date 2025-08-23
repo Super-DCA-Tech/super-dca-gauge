@@ -18,7 +18,7 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/type
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "./BaseHookUpgradeable.sol";
+import {BaseHookUpgradeable} from "./BaseHookUpgradeable.sol";
 
 /**
  * @title SuperDCAGauge
@@ -38,7 +38,13 @@ import "./BaseHookUpgradeable.sol";
  * - Distribution: 50% to pools (community), 50% to developer
  * - Access Control: Admin can set Manager, Manager can set mintRate
  */
-contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, PausableUpgradeable{
+contract SuperDCAGauge is
+    Initializable,
+    BaseHookUpgradeable,
+    AccessControlUpgradeable,
+    UUPSUpgradeable,
+    PausableUpgradeable
+{
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -98,7 +104,14 @@ contract SuperDCAGauge is Initializable, BaseHookUpgradeable, AccessControlUpgra
      * @param _developerAddress The address of the Developer.
      * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
-    function initialize(IPoolManager _poolManager, address _superDCAToken, address _developerAddress, address defaultAdmin, address pauser, uint256 _mintRate) external initializer {
+    function initialize(
+        IPoolManager _poolManager,
+        address _superDCAToken,
+        address _developerAddress,
+        address defaultAdmin,
+        address pauser,
+        uint256 _mintRate
+    ) external initializer {
         /* --- parent initialisers --- */
         __BaseHook_init(_poolManager);
         __AccessControl_init();

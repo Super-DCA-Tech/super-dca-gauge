@@ -5,9 +5,9 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {PoolKey}        from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {BalanceDelta}   from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta}from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {BeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
 /**
  * @dev  Minimal, upgrade-safe replacement for `BaseHook`.
@@ -15,11 +15,13 @@ import {BeforeSwapDelta}from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
  */
 abstract contract BaseHookUpgradeable is Initializable, IHooks {
     IPoolManager public poolManager;
-    
+
     error HookNotImplemented();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() { _disableInitializers(); }
+    constructor() {
+        _disableInitializers();
+    }
 
     modifier onlyPoolManager() {
         require(msg.sender == address(poolManager), "PoolManager only");
@@ -30,14 +32,14 @@ abstract contract BaseHookUpgradeable is Initializable, IHooks {
         poolManager = _pm;
 
         Hooks.validateHookPermissions(
-            IHooks(address(this)),      // proxy address (correct one)
-            getHookPermissions()        // implemented by the child hook
+            IHooks(address(this)), // proxy address (correct one)
+            getHookPermissions() // implemented by the child hook
         );
     }
 
     function getHookPermissions() public pure virtual returns (Hooks.Permissions memory);
 
-     /// @inheritdoc IHooks
+    /// @inheritdoc IHooks
     function beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
         external
         onlyPoolManager
@@ -221,4 +223,3 @@ abstract contract BaseHookUpgradeable is Initializable, IHooks {
         revert HookNotImplemented();
     }
 }
-

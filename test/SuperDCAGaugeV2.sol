@@ -7,7 +7,7 @@ import "../src/SuperDCAGauge.sol";
 contract SuperDCAGaugeV2 is SuperDCAGauge {
     /// Runs once after the proxy is upgraded to V2
     /// @custom:oz-upgrades-validate-as-initializer
-    function initializeV2() external reinitializer(2) {
+    function initializeV2() external reinitializer(2) onlyRole(DEFAULT_ADMIN_ROLE) {
         __BaseHook_init(poolManager);
         __AccessControl_init();
         __UUPSUpgradeable_init();

@@ -30,7 +30,7 @@ abstract contract DeployGaugeBase is Script {
     struct HookConfiguration {
         address poolManager;
         address developerAddress;
-        address adminAddress; 
+        address adminAddress;
         address pauserAddress;
         uint256 mintRate;
     }
@@ -74,7 +74,14 @@ abstract contract DeployGaugeBase is Script {
         // Deploy the hook using CREATE2 with the mined salt
         hook = new SuperDCAGauge{salt: salt}();
 
-        hook.initialize(IPoolManager(hookConfig.poolManager), DCA_TOKEN, hookConfig.developerAddress, hookConfig.adminAddress, hookConfig.pauserAddress, hookConfig.mintRate);
+        hook.initialize(
+            IPoolManager(hookConfig.poolManager),
+            DCA_TOKEN,
+            hookConfig.developerAddress,
+            hookConfig.adminAddress,
+            hookConfig.pauserAddress,
+            hookConfig.mintRate
+        );
 
         require(address(hook) == hookAddress, "Hook address mismatch");
 
