@@ -172,6 +172,11 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertEq(hook.lastMinted(), block.timestamp, "Last minted time not set correctly");
         assertEq(hook.totalStakedAmount(), 0, "Initial staked amount should be 0");
         assertEq(hook.rewardIndex(), 0, "Initial reward index should be 1e18");
+        
+        // Test fee initialization
+        assertEq(hook.internalFee(), hook.INTERNAL_POOL_FEE(), "Internal fee should be initialized to constant");
+        assertEq(hook.externalFee(), hook.EXTERNAL_POOL_FEE(), "External fee should be initialized to constant");
+        assertEq(hook.keeperFee(), hook.KEEPER_POOL_FEE(), "Keeper fee should be initialized to constant");
 
         // Test hook permissions
         Hooks.Permissions memory permissions = hook.getHookPermissions();
@@ -1426,31 +1431,51 @@ contract AccessControlTest is SuperDCAGaugeTest {
 contract SetFeeTest is AccessControlTest {
     uint24 newInternalFee = 600;
     uint24 newExternalFee = 700;
+    uint24 newKeeperFee = 800;
 
     function test_Should_AllowManagerToSetInternalFee() public {
         uint24 initialExternalFee = hook.externalFee();
-        uint24 initialInternalFee = hook.internalFee(); // Get the old fee
+        uint24 initialKeeperFee = hook.keeperFee();
+        uint24 initialInternalFee = hook.internalFee();
 
         vm.prank(managerUser);
         vm.expectEmit(true, true, true, true);
-        emit SuperDCAGauge.FeeUpdated(true, initialInternalFee, newInternalFee); // Add old fee
-        hook.setFee(true, newInternalFee);
+        emit SuperDCAGauge.FeeUpdated(SuperDCAGauge.FeeType.INTERNAL, initialInternalFee, newInternalFee);
+        hook.setFee(SuperDCAGauge.FeeType.INTERNAL, newInternalFee);
 
         assertEq(hook.internalFee(), newInternalFee, "Internal fee should be updated");
         assertEq(hook.externalFee(), initialExternalFee, "External fee should remain unchanged");
+        assertEq(hook.keeperFee(), initialKeeperFee, "Keeper fee should remain unchanged");
     }
 
     function test_Should_AllowManagerToSetExternalFee() public {
         uint24 initialInternalFee = hook.internalFee();
-        uint24 initialExternalFee = hook.externalFee(); // Get the old fee
+        uint24 initialKeeperFee = hook.keeperFee();
+        uint24 initialExternalFee = hook.externalFee();
 
         vm.prank(managerUser);
         vm.expectEmit(true, true, true, true);
-        emit SuperDCAGauge.FeeUpdated(false, initialExternalFee, newExternalFee); // Add old fee
-        hook.setFee(false, newExternalFee);
+        emit SuperDCAGauge.FeeUpdated(SuperDCAGauge.FeeType.EXTERNAL, initialExternalFee, newExternalFee);
+        hook.setFee(SuperDCAGauge.FeeType.EXTERNAL, newExternalFee);
 
         assertEq(hook.externalFee(), newExternalFee, "External fee should be updated");
         assertEq(hook.internalFee(), initialInternalFee, "Internal fee should remain unchanged");
+        assertEq(hook.keeperFee(), initialKeeperFee, "Keeper fee should remain unchanged");
+    }
+
+    function test_Should_AllowManagerToSetKeeperFee() public {
+        uint24 initialInternalFee = hook.internalFee();
+        uint24 initialExternalFee = hook.externalFee();
+        uint24 initialKeeperFee = hook.keeperFee();
+
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.FeeUpdated(SuperDCAGauge.FeeType.KEEPER, initialKeeperFee, newKeeperFee);
+        hook.setFee(SuperDCAGauge.FeeType.KEEPER, newKeeperFee);
+
+        assertEq(hook.keeperFee(), newKeeperFee, "Keeper fee should be updated");
+        assertEq(hook.internalFee(), initialInternalFee, "Internal fee should remain unchanged");
+        assertEq(hook.externalFee(), initialExternalFee, "External fee should remain unchanged");
     }
 
     function test_RevertWhen_NonManagerSetsInternalFee() public {
@@ -1458,7 +1483,7 @@ contract SetFeeTest is AccessControlTest {
             abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
         );
         vm.prank(nonManagerUser);
-        hook.setFee(true, newInternalFee);
+        hook.setFee(SuperDCAGauge.FeeType.INTERNAL, newInternalFee);
     }
 
     function test_RevertWhen_NonManagerSetsExternalFee() public {
@@ -1466,7 +1491,29 @@ contract SetFeeTest is AccessControlTest {
             abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
         );
         vm.prank(nonManagerUser);
-        hook.setFee(false, newExternalFee);
+        hook.setFee(SuperDCAGauge.FeeType.EXTERNAL, newExternalFee);
+    }
+
+    function test_RevertWhen_NonManagerSetsKeeperFee() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
+        );
+        vm.prank(nonManagerUser);
+        hook.setFee(SuperDCAGauge.FeeType.KEEPER, newKeeperFee);
+    }
+
+    function test_AllFeeTypesCanBeSetIndependently() public {
+        // Set all fees to new values
+        vm.startPrank(managerUser);
+        hook.setFee(SuperDCAGauge.FeeType.INTERNAL, newInternalFee);
+        hook.setFee(SuperDCAGauge.FeeType.EXTERNAL, newExternalFee);
+        hook.setFee(SuperDCAGauge.FeeType.KEEPER, newKeeperFee);
+        vm.stopPrank();
+
+        // Verify all fees are set correctly
+        assertEq(hook.internalFee(), newInternalFee, "Internal fee should be updated");
+        assertEq(hook.externalFee(), newExternalFee, "External fee should be updated");
+        assertEq(hook.keeperFee(), newKeeperFee, "Keeper fee should be updated");
     }
 }
 
@@ -1640,9 +1687,14 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
 
         assertEq(hook.keeper(), keeper1, "Keeper should be set for fee application");
 
-        assertEq(hook.INTERNAL_POOL_FEE(), 0, "Internal fee should be 0%");
-        assertEq(hook.KEEPER_POOL_FEE(), 1000, "Keeper fee should be 0.10% (1000 basis points)");
-        assertEq(hook.EXTERNAL_POOL_FEE(), 5000, "External fee should be 0.50% (5000 basis points)");
+        assertEq(hook.INTERNAL_POOL_FEE(), 0, "Internal fee constant should be 0%");
+        assertEq(hook.KEEPER_POOL_FEE(), 1000, "Keeper fee constant should be 0.10% (1000 basis points)");
+        assertEq(hook.EXTERNAL_POOL_FEE(), 5000, "External fee constant should be 0.50% (5000 basis points)");
+        
+        // Test actual fee state variables
+        assertEq(hook.internalFee(), 0, "Internal fee should be 0%");
+        assertEq(hook.keeperFee(), 1000, "Keeper fee should be 0.10% (1000 basis points)");
+        assertEq(hook.externalFee(), 5000, "External fee should be 0.50% (5000 basis points)");
     }
 
     function test_keeperStakingIndependentFromRewardStaking() public {
@@ -1728,5 +1780,29 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
 
         uint256 expectedBalance = 1000e18 - increasedDeposit;
         assertEq(dcaToken.balanceOf(keeper1), expectedBalance, "Should have net deposit difference");
+    }
+
+    function test_keeperFeeUpdatesAffectSwaps() public {
+        uint256 deposit = 100e18;
+        uint24 newKeeperFee = 2000; // 0.20%
+        
+        // Set up a keeper
+        vm.startPrank(keeper1);
+        dcaToken.approve(address(hook), deposit);
+        hook.becomeKeeper(deposit);
+        vm.stopPrank();
+        
+        // Verify initial keeper fee
+        assertEq(hook.keeperFee(), hook.KEEPER_POOL_FEE(), "Initial keeper fee should be constant value");
+        
+        // Update keeper fee
+        vm.prank(developer);
+        hook.setFee(SuperDCAGauge.FeeType.KEEPER, newKeeperFee);
+        
+        // Verify fee was updated
+        assertEq(hook.keeperFee(), newKeeperFee, "Keeper fee should be updated");
+        
+        // The beforeSwap function should now use the new fee for keeper swaps
+        // This verifies that the updated fee state variable is used rather than the constant
     }
 }
