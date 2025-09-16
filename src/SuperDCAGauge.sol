@@ -60,7 +60,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
-    uint24 public constant EXTERNAL_POOL_FEE = 1000; // 0.10%
+    uint24 public constant KEEPER_POOL_FEE = 1000; // 0.10%
+    uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -90,6 +91,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     uint256 public lastMinted;
     mapping(address => bool) public isInternalAddress;
 
+    // Keeper staking (separate from reward staking)
+    address public keeper;
+    uint256 public keeperDeposit;
+
     // Reward tracking
     uint256 public totalStakedAmount;
     uint256 public rewardIndex = 0;
@@ -110,6 +115,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
     );
     event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
+    event KeeperChanged(address indexed oldKeeper, address indexed newKeeper, uint256 deposit);
 
     // Errors
     error NotDynamicFee();
@@ -475,8 +481,44 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         bytes calldata /* hookData */
     ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
         address swapper = IMsgSender(sender).msgSender();
-        uint24 fee = isInternalAddress[swapper] ? internalFee : externalFee;
+        uint24 fee;
+        
+        if (isInternalAddress[swapper]) {
+            fee = internalFee;
+        } else if (swapper == keeper) {
+            fee = KEEPER_POOL_FEE;
+        } else {
+            fee = externalFee;
+        }
+        
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
+    }
+
+    /**
+     * @notice Allows users to become the keeper by depositing more DCA tokens than the current keeper
+     * @dev Implements king-of-the-hill mechanism where higher deposits replace current keeper
+     * @param amount The amount of DCA tokens to deposit to become keeper
+     */
+    function becomeKeeper(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        if (amount <= keeperDeposit) revert InsufficientBalance();
+
+        address oldKeeper = keeper;
+        uint256 oldDeposit = keeperDeposit;
+
+        // Transfer new deposit from user
+        IERC20(superDCAToken).transferFrom(msg.sender, address(this), amount);
+
+        // Refund previous keeper if one exists
+        if (oldKeeper != address(0) && oldDeposit > 0) {
+            IERC20(superDCAToken).transfer(oldKeeper, oldDeposit);
+        }
+
+        // Set new keeper
+        keeper = msg.sender;
+        keeperDeposit = amount;
+
+        emit KeeperChanged(oldKeeper, msg.sender, amount);
     }
 
     /**
