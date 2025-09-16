@@ -8,7 +8,7 @@ import {console2} from "forge-std/Test.sol";
 contract SetFees is Script {
     uint256 deployerPrivateKey;
     address gaugeAddress;
-    bool isInternalFee;
+    SuperDCAGauge.FeeType feeType;
     uint24 newFee;
 
     function setUp() public {
@@ -19,7 +19,14 @@ contract SetFees is Script {
         if (gaugeAddress == address(0)) {
             revert("GAUGE_ADDRESS environment variable not set.");
         }
-        isInternalFee = vm.envBool("IS_INTERNAL_FEE");
+
+        // Read fee type from environment (0=INTERNAL, 1=EXTERNAL, 2=KEEPER)
+        uint256 feeTypeFromEnv = vm.envUint("FEE_TYPE");
+        if (feeTypeFromEnv > 2) {
+            revert("FEE_TYPE must be 0 (INTERNAL), 1 (EXTERNAL), or 2 (KEEPER).");
+        }
+        feeType = SuperDCAGauge.FeeType(feeTypeFromEnv);
+
         // forge-std does not have vm.envUint24, so we read as uint256 and cast
         uint256 feeFromEnv = vm.envUint("NEW_FEE");
         if (feeFromEnv > type(uint24).max) {
@@ -34,26 +41,39 @@ contract SetFees is Script {
         SuperDCAGauge gauge = SuperDCAGauge(payable(gaugeAddress));
 
         console2.log("Gauge Address:", address(gauge));
-        console2.log("Setting internal fee:", isInternalFee);
+
+        string memory feeTypeName;
+        if (feeType == SuperDCAGauge.FeeType.INTERNAL) {
+            feeTypeName = "INTERNAL";
+        } else if (feeType == SuperDCAGauge.FeeType.EXTERNAL) {
+            feeTypeName = "EXTERNAL";
+        } else {
+            feeTypeName = "KEEPER";
+        }
+        console2.log("Setting fee type:", feeTypeName);
         console2.log("New fee value:", newFee);
 
         uint24 oldFee;
-        if (isInternalFee) {
+        if (feeType == SuperDCAGauge.FeeType.INTERNAL) {
             oldFee = gauge.internalFee();
-        } else {
+        } else if (feeType == SuperDCAGauge.FeeType.EXTERNAL) {
             oldFee = gauge.externalFee();
+        } else {
+            oldFee = gauge.keeperFee();
         }
         console2.log("Old fee value:", oldFee);
 
         console2.log("Calling setFee()...");
-        gauge.setFee(isInternalFee, newFee);
+        gauge.setFee(feeType, newFee);
         console2.log("Called setFee().");
 
         uint24 currentFee;
-        if (isInternalFee) {
+        if (feeType == SuperDCAGauge.FeeType.INTERNAL) {
             currentFee = gauge.internalFee();
-        } else {
+        } else if (feeType == SuperDCAGauge.FeeType.EXTERNAL) {
             currentFee = gauge.externalFee();
+        } else {
+            currentFee = gauge.keeperFee();
         }
         console2.log("Current fee value:", currentFee);
 

@@ -60,8 +60,18 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
-    uint24 public constant EXTERNAL_POOL_FEE = 1000; // 0.10%
+    uint24 public constant KEEPER_POOL_FEE = 1000; // 0.10%
+    uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+
+    /**
+     * @notice Enum for different fee types
+     */
+    enum FeeType {
+        INTERNAL,
+        EXTERNAL,
+        KEEPER
+    }
 
     /**
      * @notice Information about a token's staking and rewards
@@ -86,9 +96,14 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     address public developerAddress;
     uint24 public internalFee;
     uint24 public externalFee;
+    uint24 public keeperFee;
     uint256 public mintRate;
     uint256 public lastMinted;
     mapping(address => bool) public isInternalAddress;
+
+    // Keeper staking (separate from reward staking)
+    address public keeper;
+    uint256 public keeperDeposit;
 
     // Reward tracking
     uint256 public totalStakedAmount;
@@ -104,12 +119,13 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     event Unstaked(address indexed token, address indexed user, uint256 amount);
     event RewardIndexUpdated(uint256 newIndex);
     event InternalAddressUpdated(address indexed user, bool isInternal);
-    event FeeUpdated(bool indexed isInternal, uint24 oldFee, uint24 newFee);
+    event FeeUpdated(FeeType indexed feeType, uint24 oldFee, uint24 newFee);
     event SuperDCATokenOwnershipReturned(address indexed newOwner);
     event FeesCollected(
         address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
     );
     event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
+    event KeeperChanged(address indexed oldKeeper, address indexed newKeeper, uint256 deposit);
 
     // Errors
     error NotDynamicFee();
@@ -143,6 +159,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         developerAddress = _developerAddress;
         internalFee = INTERNAL_POOL_FEE;
         externalFee = EXTERNAL_POOL_FEE;
+        keeperFee = KEEPER_POOL_FEE;
         mintRate = _mintRate;
         lastMinted = block.timestamp;
         positionManagerV4 = _positionManagerV4;
@@ -475,8 +492,57 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         bytes calldata /* hookData */
     ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
         address swapper = IMsgSender(sender).msgSender();
-        uint24 fee = isInternalAddress[swapper] ? internalFee : externalFee;
+        uint24 fee;
+
+        if (isInternalAddress[swapper]) {
+            fee = internalFee;
+        } else if (swapper == keeper) {
+            fee = keeperFee;
+        } else {
+            fee = externalFee;
+        }
+
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
+    }
+
+    /**
+     * @notice Allows users to become the keeper by depositing more DCA tokens than the current keeper
+     * @dev Implements king-of-the-hill mechanism where higher deposits replace current keeper
+     * @dev This function is protected against reentrancy by the order of operations:
+     *      1. Validate inputs and transfer new deposit first
+     *      2. Refund previous keeper (external call)
+     *      3. Update state variables
+     * @param amount The amount of DCA tokens to deposit to become keeper
+     */
+    function becomeKeeper(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        if (amount <= keeperDeposit) revert InsufficientBalance();
+
+        address oldKeeper = keeper;
+        uint256 oldDeposit = keeperDeposit;
+
+        // Transfer new deposit from user
+        IERC20(superDCAToken).transferFrom(msg.sender, address(this), amount);
+
+        // Refund previous keeper if one exists
+        if (oldKeeper != address(0) && oldDeposit > 0) {
+            IERC20(superDCAToken).transfer(oldKeeper, oldDeposit);
+        }
+
+        // Set new keeper
+        keeper = msg.sender;
+        keeperDeposit = amount;
+
+        emit KeeperChanged(oldKeeper, msg.sender, amount);
+    }
+
+    /**
+     * @notice Returns the current keeper information
+     * @return currentKeeper The address of the current keeper
+     * @return currentDeposit The amount deposited by the current keeper
+     */
+    function getKeeperInfo() external view returns (address currentKeeper, uint256 currentDeposit) {
+        return (keeper, keeperDeposit);
     }
 
     /**
@@ -623,20 +689,23 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Allows the manager to update the internal or external fee.
-     * @param _isInternal If true, updates internalFee, otherwise updates externalFee.
+     * @notice Allows the manager to update any of the three fee types.
+     * @param _feeType The type of fee to update (INTERNAL, EXTERNAL, or KEEPER).
      * @param _newFee The new fee value (must be uint24).
      */
-    function setFee(bool _isInternal, uint24 _newFee) external onlyRole(MANAGER_ROLE) {
+    function setFee(FeeType _feeType, uint24 _newFee) external onlyRole(MANAGER_ROLE) {
         uint24 oldFee;
-        if (_isInternal) {
+        if (_feeType == FeeType.INTERNAL) {
             oldFee = internalFee;
             internalFee = _newFee;
-        } else {
+        } else if (_feeType == FeeType.EXTERNAL) {
             oldFee = externalFee;
             externalFee = _newFee;
+        } else if (_feeType == FeeType.KEEPER) {
+            oldFee = keeperFee;
+            keeperFee = _newFee;
         }
-        emit FeeUpdated(_isInternal, oldFee, _newFee);
+        emit FeeUpdated(_feeType, oldFee, _newFee);
     }
 
     /**
