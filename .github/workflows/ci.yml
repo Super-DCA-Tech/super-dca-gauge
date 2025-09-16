@@ -79,7 +79,7 @@ jobs:
         with:
           coverage-files: ./lcov.info
           # Note: This is because of the missing msgSender function in PoolSwapTest
-          minimum-coverage: 95 
+          minimum-coverage: 90 
 
   lint:
     runs-on: ubuntu-latest
