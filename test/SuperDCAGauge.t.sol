@@ -172,7 +172,7 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertEq(hook.lastMinted(), block.timestamp, "Last minted time not set correctly");
         assertEq(hook.totalStakedAmount(), 0, "Initial staked amount should be 0");
         assertEq(hook.rewardIndex(), 0, "Initial reward index should be 1e18");
-        
+
         // Test fee initialization
         assertEq(hook.internalFee(), hook.INTERNAL_POOL_FEE(), "Internal fee should be initialized to constant");
         assertEq(hook.externalFee(), hook.EXTERNAL_POOL_FEE(), "External fee should be initialized to constant");
@@ -1690,7 +1690,7 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
         assertEq(hook.INTERNAL_POOL_FEE(), 0, "Internal fee constant should be 0%");
         assertEq(hook.KEEPER_POOL_FEE(), 1000, "Keeper fee constant should be 0.10% (1000 basis points)");
         assertEq(hook.EXTERNAL_POOL_FEE(), 5000, "External fee constant should be 0.50% (5000 basis points)");
-        
+
         // Test actual fee state variables
         assertEq(hook.internalFee(), 0, "Internal fee should be 0%");
         assertEq(hook.keeperFee(), 1000, "Keeper fee should be 0.10% (1000 basis points)");
@@ -1785,23 +1785,23 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
     function test_keeperFeeUpdatesAffectSwaps() public {
         uint256 deposit = 100e18;
         uint24 newKeeperFee = 2000; // 0.20%
-        
+
         // Set up a keeper
         vm.startPrank(keeper1);
         dcaToken.approve(address(hook), deposit);
         hook.becomeKeeper(deposit);
         vm.stopPrank();
-        
+
         // Verify initial keeper fee
         assertEq(hook.keeperFee(), hook.KEEPER_POOL_FEE(), "Initial keeper fee should be constant value");
-        
+
         // Update keeper fee
         vm.prank(developer);
         hook.setFee(SuperDCAGauge.FeeType.KEEPER, newKeeperFee);
-        
+
         // Verify fee was updated
         assertEq(hook.keeperFee(), newKeeperFee, "Keeper fee should be updated");
-        
+
         // The beforeSwap function should now use the new fee for keeper swaps
         // This verifies that the updated fee state variable is used rather than the constant
     }

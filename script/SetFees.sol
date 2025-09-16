@@ -19,14 +19,14 @@ contract SetFees is Script {
         if (gaugeAddress == address(0)) {
             revert("GAUGE_ADDRESS environment variable not set.");
         }
-        
+
         // Read fee type from environment (0=INTERNAL, 1=EXTERNAL, 2=KEEPER)
         uint256 feeTypeFromEnv = vm.envUint("FEE_TYPE");
         if (feeTypeFromEnv > 2) {
             revert("FEE_TYPE must be 0 (INTERNAL), 1 (EXTERNAL), or 2 (KEEPER).");
         }
         feeType = SuperDCAGauge.FeeType(feeTypeFromEnv);
-        
+
         // forge-std does not have vm.envUint24, so we read as uint256 and cast
         uint256 feeFromEnv = vm.envUint("NEW_FEE");
         if (feeFromEnv > type(uint24).max) {
@@ -41,7 +41,7 @@ contract SetFees is Script {
         SuperDCAGauge gauge = SuperDCAGauge(payable(gaugeAddress));
 
         console2.log("Gauge Address:", address(gauge));
-        
+
         string memory feeTypeName;
         if (feeType == SuperDCAGauge.FeeType.INTERNAL) {
             feeTypeName = "INTERNAL";
