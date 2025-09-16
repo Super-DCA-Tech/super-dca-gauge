@@ -104,25 +104,52 @@ WETH-DCA Reward = 400 DCA * (1 - 0) = 400 DCA
 When a pool triggers a reward distribution, the `rewardIndex` is updated to the current index and that pool's share of the rewards is minted and distributed to the pool and the developer. The other pools that did not trigger a reward distribution are not affected.
 
 ### Dynamic Fees
-The `SuperDCAGauge` implements a dynamic fee system using Uniswap V4's dynamic fee capability, allowing for differentiated swap fees based on the trader's classification. This feature enables preferential fee treatment for internal ecosystem participants while maintaining standard fees for external users.
+The `SuperDCAGauge` implements a dynamic fee system using Uniswap V4's dynamic fee capability, allowing for differentiated swap fees based on the trader's classification. This feature enables preferential fee treatment for internal ecosystem participants and keepers while maintaining standard fees for external users.
 
 #### Fee Structure
 - **Internal Fee**: 0% (0 basis points) - Applied to addresses marked as "internal"
-- **External Fee**: 0.10% (1000 basis points) - Applied to all other addresses
-- **Dynamic Application**: Fees are determined at swap time based on the swapper's internal address status
+- **Keeper Fee**: 0.10% (1000 basis points) - Applied to the current keeper address
+- **External Fee**: 0.50% (5000 basis points) - Applied to all other addresses
+- **Dynamic Application**: Fees are determined at swap time based on the swapper's classification
+
+#### Fee Priority
+The system prioritizes fee determination in the following order:
+1. **Internal addresses** receive 0% fee (highest priority)
+2. **Keeper address** receives 0.10% fee 
+3. **All other addresses** receive 0.50% fee (lowest priority)
+
+#### Keeper System
+The keeper system implements a "king-of-the-hill" staking mechanism:
+- **Single Keeper**: Only one address can be the keeper at any time
+- **Deposit Requirement**: To become keeper, a user must deposit more DCA tokens than the current keeper
+- **Automatic Refund**: The previous keeper's deposit is automatically returned when replaced
+- **Fee Benefit**: The keeper receives reduced swap fees (0.10% vs 0.50% for external users)
+
+##### Becoming a Keeper
+Users can become the keeper by calling `becomeKeeper(uint256 amount)`:
+- The amount must be greater than the current keeper's deposit
+- The function transfers the deposit from the user and refunds the previous keeper
+- A `KeeperChanged` event is emitted for transparency
 
 #### Technical Implementation
 The dynamic fee system operates through the `_beforeSwap` hook:
 
 1. **Address Classification**: The system identifies the actual swapper using `IMsgSender(sender).msgSender()` to handle cases where swaps are routed through intermediary contracts
-2. **Fee Selection**: Based on the swapper's internal address status (`isInternalAddress[swapper]`), either the internal or external fee is applied
+2. **Fee Selection**: Based on the swapper's classification, fees are applied in priority order:
+   - Internal addresses: `internalFee` (0%)
+   - Keeper address: `KEEPER_POOL_FEE` (0.10%)
+   - All others: `externalFee` (0.50%)
 3. **Dynamic Override**: The selected fee is returned with the `LPFeeLibrary.OVERRIDE_FEE_FLAG` to dynamically set the pool's fee for that specific swap
 
 #### Management Functions
-The fee system includes several management capabilities restricted to the `MANAGER_ROLE`:
+The fee system includes several management capabilities:
 
+**Manager Role Functions** (restricted to `MANAGER_ROLE`):
 - **`setFee(bool _isInternal, uint24 _newFee)`**: Updates either internal or external fee rates
 - **`setInternalAddress(address _user, bool _isInternal)`**: Marks or unmarks addresses as internal for preferential fee treatment
+
+**Public Functions**:
+- **`becomeKeeper(uint256 amount)`**: Allows users to become the keeper by depositing more DCA tokens than the current keeper (king-of-the-hill mechanism)
 
 ## Deployment Addresses
 | Network | Contract | Address |

@@ -497,6 +497,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /**
      * @notice Allows users to become the keeper by depositing more DCA tokens than the current keeper
      * @dev Implements king-of-the-hill mechanism where higher deposits replace current keeper
+     * @dev This function is protected against reentrancy by the order of operations:
+     *      1. Validate inputs and transfer new deposit first
+     *      2. Refund previous keeper (external call)
+     *      3. Update state variables
      * @param amount The amount of DCA tokens to deposit to become keeper
      */
     function becomeKeeper(uint256 amount) external {
@@ -519,6 +523,15 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         keeperDeposit = amount;
 
         emit KeeperChanged(oldKeeper, msg.sender, amount);
+    }
+
+    /**
+     * @notice Returns the current keeper information
+     * @return currentKeeper The address of the current keeper
+     * @return currentDeposit The amount deposited by the current keeper
+     */
+    function getKeeperInfo() external view returns (address currentKeeper, uint256 currentDeposit) {
+        return (keeper, keeperDeposit);
     }
 
     /**

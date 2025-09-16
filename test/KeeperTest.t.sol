@@ -124,10 +124,44 @@ contract KeeperTest is SuperDCAGaugeTest {
         hook.becomeKeeper(deposit);
         vm.stopPrank();
         
-        // Test fee structure through mock swap
-        // This would require more complex mocking to fully test the fee application
-        // For now, we verify the keeper state is correct
+        // Test fee structure through the contract's public interface
+        // We can verify the keeper state is correct and would affect fees
         assertEq(hook.keeper(), keeper1, "Keeper should be set for fee application");
+        
+        // Verify fee constants are correct
+        assertEq(hook.INTERNAL_POOL_FEE(), 0, "Internal fee should be 0%");
+        assertEq(hook.KEEPER_POOL_FEE(), 1000, "Keeper fee should be 0.10% (1000 basis points)");
+        assertEq(hook.EXTERNAL_POOL_FEE(), 5000, "External fee should be 0.50% (5000 basis points)");
+    }
+
+    function test_keeperStakingIndependentFromRewardStaking() public {
+        uint256 keeperDeposit = 100e18;
+        uint256 rewardStake = 50e18;
+        
+        // First become keeper
+        vm.startPrank(keeper1);
+        dcaToken.approve(address(hook), keeperDeposit + rewardStake);
+        hook.becomeKeeper(keeperDeposit);
+        
+        // Then stake for rewards (this should be independent)
+        hook.stake(address(weth), rewardStake);
+        vm.stopPrank();
+        
+        // Verify keeper status
+        assertEq(hook.keeper(), keeper1, "Should be keeper");
+        assertEq(hook.keeperDeposit(), keeperDeposit, "Keeper deposit should be separate");
+        
+        // Verify reward staking
+        assertEq(hook.getUserStakeAmount(keeper1, address(weth)), rewardStake, "Reward stake should be separate");
+        assertEq(hook.totalStakedAmount(), rewardStake, "Total staked should only include reward stakes");
+        
+        // Verify balances
+        uint256 expectedBalance = 1000e18 - keeperDeposit - rewardStake;
+        assertEq(dcaToken.balanceOf(keeper1), expectedBalance, "Balance should account for both deposits");
+        
+        // Contract should hold both types of deposits
+        uint256 expectedContractBalance = keeperDeposit + rewardStake;
+        assertEq(dcaToken.balanceOf(address(hook)), expectedContractBalance, "Hook should hold both deposits");
     }
 
     function test_multipleKeeperChanges() public {
@@ -160,5 +194,48 @@ contract KeeperTest is SuperDCAGaugeTest {
         // Verify both keepers have correct balances
         assertEq(dcaToken.balanceOf(keeper1), 1000e18 - deposit3, "Keeper1 should have paid final deposit");
         assertEq(dcaToken.balanceOf(keeper2), 1000e18, "Keeper2 should be fully refunded");
+    }
+
+    function test_getKeeperInfo() public {
+        // Initially no keeper
+        (address currentKeeper, uint256 currentDeposit) = hook.getKeeperInfo();
+        assertEq(currentKeeper, address(0), "Initially no keeper");
+        assertEq(currentDeposit, 0, "Initially no deposit");
+
+        // Set a keeper
+        uint256 deposit = 150e18;
+        vm.startPrank(keeper1);
+        dcaToken.approve(address(hook), deposit);
+        hook.becomeKeeper(deposit);
+        vm.stopPrank();
+
+        // Check updated info
+        (currentKeeper, currentDeposit) = hook.getKeeperInfo();
+        assertEq(currentKeeper, keeper1, "Should return current keeper");
+        assertEq(currentDeposit, deposit, "Should return current deposit");
+    }
+
+    function test_sameKeeperIncreaseDeposit() public {
+        uint256 initialDeposit = 100e18;
+        uint256 increasedDeposit = 200e18;
+        
+        // Become keeper initially
+        vm.startPrank(keeper1);
+        dcaToken.approve(address(hook), initialDeposit + increasedDeposit);
+        hook.becomeKeeper(initialDeposit);
+        
+        // Same keeper increases deposit
+        vm.expectEmit(true, true, true, true);
+        emit KeeperChanged(keeper1, keeper1, increasedDeposit);
+        hook.becomeKeeper(increasedDeposit);
+        vm.stopPrank();
+        
+        // Verify final state
+        assertEq(hook.keeper(), keeper1, "Should still be same keeper");
+        assertEq(hook.keeperDeposit(), increasedDeposit, "Should have increased deposit");
+        
+        // Verify balance (should have paid net difference since they get refunded their original deposit)
+        uint256 expectedBalance = 1000e18 - increasedDeposit;
+        assertEq(dcaToken.balanceOf(keeper1), expectedBalance, "Should have net deposit difference");
     }
 }
