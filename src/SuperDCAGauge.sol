@@ -482,7 +482,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
         address swapper = IMsgSender(sender).msgSender();
         uint24 fee;
-        
+
         if (isInternalAddress[swapper]) {
             fee = internalFee;
         } else if (swapper == keeper) {
@@ -490,7 +490,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         } else {
             fee = externalFee;
         }
-        
+
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
