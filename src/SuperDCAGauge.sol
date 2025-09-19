@@ -8,15 +8,13 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperchainERC20} from "./interfaces/ISuperchainERC20.sol";
 import {IMsgSender} from "./interfaces/IMsgSender.sol";
+import {ISuperDCAStaking} from "./interfaces/ISuperDCAStaking.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -51,8 +49,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
-    using EnumerableSet for EnumerableSet.AddressSet;
-    using SafeERC20 for IERC20;
     using TickMath for int24;
 
     IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
@@ -73,16 +69,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         KEEPER
     }
 
-    /**
-     * @notice Information about a token's staking and rewards
-     * @param stakedAmount Total amount of SuperDCATokens staked for this token
-     * @param lastRewardIndex The reward index when rewards were last claimed
-     */
-    struct TokenRewardInfo {
-        uint256 stakedAmount;
-        uint256 lastRewardIndex;
-    }
-
     struct TokenAmounts {
         address token0;
         address token1;
@@ -97,27 +83,18 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     uint24 public internalFee;
     uint24 public externalFee;
     uint24 public keeperFee;
-    uint256 public mintRate;
-    uint256 public lastMinted;
     mapping(address => bool) public isInternalAddress;
 
     // Keeper staking (separate from reward staking)
     address public keeper;
     uint256 public keeperDeposit;
 
-    // Reward tracking
-    uint256 public totalStakedAmount;
-    uint256 public rewardIndex = 0;
-    mapping(address token => TokenRewardInfo info) public tokenRewardInfos;
-    mapping(address user => EnumerableSet.AddressSet stakedTokens) private userStakedTokens;
-    mapping(address user => mapping(address token => uint256 amount)) public userStakes;
+    // External staking module
+    ISuperDCAStaking public staking;
     mapping(address => bool) public isTokenListed; // Track if a token is listed
     mapping(uint256 => address) public tokenOfNfp; // Stores the token corresponding to a listed NFP
 
     // Events
-    event Staked(address indexed token, address indexed user, uint256 amount);
-    event Unstaked(address indexed token, address indexed user, uint256 amount);
-    event RewardIndexUpdated(uint256 newIndex);
     event InternalAddressUpdated(address indexed user, bool isInternal);
     event FeeUpdated(FeeType indexed feeType, uint24 oldFee, uint24 newFee);
     event SuperDCATokenOwnershipReturned(address indexed newOwner);
@@ -140,19 +117,18 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     error NotFullRangePosition();
     error TokenAlreadyListed();
     error InvalidAddress();
+    error ZeroAddress();
 
     /**
      * @notice Sets the initial state.
      * @param _poolManager The Uniswap V4 pool manager.
      * @param _superDCAToken The address of the SuperDCAToken contract.
      * @param _developerAddress The address of the Developer.
-     * @param _mintRate The number of SuperDCAToken tokens to mint per second.
      */
     constructor(
         IPoolManager _poolManager,
         address _superDCAToken,
         address _developerAddress,
-        uint256 _mintRate,
         IPositionManager _positionManagerV4
     ) BaseHook(_poolManager) {
         superDCAToken = _superDCAToken;
@@ -160,13 +136,18 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         internalFee = INTERNAL_POOL_FEE;
         externalFee = EXTERNAL_POOL_FEE;
         keeperFee = KEEPER_POOL_FEE;
-        mintRate = _mintRate;
-        lastMinted = block.timestamp;
         positionManagerV4 = _positionManagerV4;
 
         _grantRole(DEFAULT_ADMIN_ROLE, _developerAddress);
         // Grant the developer the manager role to control the mint rate and fees
         _grantRole(MANAGER_ROLE, _developerAddress);
+    }
+
+    /// @notice Sets the staking contract address.
+    /// @param stakingAddr The deployed staking contract.
+    function setStaking(address stakingAddr) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (stakingAddr == address(0)) revert ZeroAddress();
+        staking = ISuperDCAStaking(stakingAddr);
     }
 
     /**
@@ -395,34 +376,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Calculates and returns the reward amount for a specific pool
-     * @dev Only processes rewards for pools that include SuperDCAToken and have the correct fee
-     * @param key The pool key containing currency pair and fee information
-     * @return Amount of reward tokens to be distributed
-     */
-    function _getRewardTokens(PoolKey calldata key) internal returns (uint256) {
-        // Get token reward info for the non-SuperDCAToken currency
-        address otherToken = superDCAToken == Currency.unwrap(key.currency0)
-            ? Currency.unwrap(key.currency1)
-            : Currency.unwrap(key.currency0);
-
-        TokenRewardInfo storage tokenInfo = tokenRewardInfos[otherToken];
-        if (tokenInfo.stakedAmount == 0) return 0;
-
-        // Update reward index before we mint reward tokens
-        _updateRewardIndex();
-
-        // Calculate rewards based on staked amount and reward index delta
-        uint256 rewardAmount = Math.mulDiv(tokenInfo.stakedAmount, rewardIndex - tokenInfo.lastRewardIndex, 1e18);
-        if (rewardAmount == 0) return 0;
-
-        // Update last reward index
-        tokenInfo.lastRewardIndex = rewardIndex;
-
-        return rewardAmount;
-    }
-
-    /**
      * @notice Handles the distribution of rewards between the pool and developer
      * @dev Syncs the pool manager, calculates rewards, and settles the distribution
      * @param key The pool key identifying the Uniswap V4 pool
@@ -431,7 +384,13 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     function _handleDistributionAndSettlement(PoolKey calldata key, bytes calldata hookData) internal {
         // Must sync the pool manager to the token before distributing tokens
         poolManager.sync(Currency.wrap(superDCAToken));
-        uint256 rewardAmount = _getRewardTokens(key);
+
+        // Derive the non-DCA token for accrual
+        address otherToken = superDCAToken == Currency.unwrap(key.currency0)
+            ? Currency.unwrap(key.currency1)
+            : Currency.unwrap(key.currency0);
+
+        uint256 rewardAmount = staking.accrueReward(otherToken);
         if (rewardAmount == 0) return;
 
         // Check if pool has liquidity before proceeding with donation
@@ -546,139 +505,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Updates the global reward index based on elapsed time and mint rate
-     * @dev The reward index increases proportionally to the time passed and total staked amount
-     */
-    function _updateRewardIndex() internal {
-        if (totalStakedAmount == 0) return;
-
-        uint256 currentTime = block.timestamp;
-        uint256 elapsed = currentTime - lastMinted;
-
-        if (elapsed > 0) {
-            uint256 mintAmount = elapsed * mintRate;
-            rewardIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
-            lastMinted = currentTime;
-            emit RewardIndexUpdated(rewardIndex);
-        }
-    }
-
-    /**
-     * @notice Allows users to stake SuperDCATokens for a specific token pool
-     * @dev Updates reward index before modifying stakes to ensure accurate reward tracking
-     * @param token The token address representing the pool to stake for
-     * @param amount The amount of SuperDCATokens to stake
-     */
-    function stake(address token, uint256 amount) external {
-        if (amount == 0) revert ZeroAmount();
-
-        // Update reward index before modifying stake
-        _updateRewardIndex();
-
-        // Transfer tokens from user
-        IERC20(superDCAToken).transferFrom(msg.sender, address(this), amount);
-
-        // Update token reward info
-        TokenRewardInfo storage info = tokenRewardInfos[token];
-        info.stakedAmount += amount;
-        info.lastRewardIndex = rewardIndex;
-
-        // Update total staked amount
-        totalStakedAmount += amount;
-
-        // Track user's stake
-        userStakedTokens[msg.sender].add(token);
-        userStakes[msg.sender][token] += amount;
-
-        emit Staked(token, msg.sender, amount);
-    }
-
-    /**
-     * @notice Allows users to unstake their SuperDCATokens from a specific token pool
-     * @dev Updates reward index before modifying stakes to ensure accurate reward tracking
-     * @param token The token address representing the pool to unstake from
-     * @param amount The amount of SuperDCATokens to unstake
-     */
-    function unstake(address token, uint256 amount) external {
-        TokenRewardInfo storage info = tokenRewardInfos[token];
-
-        if (amount == 0) revert ZeroAmount();
-        if (info.stakedAmount < amount) revert InsufficientBalance();
-        if (userStakes[msg.sender][token] < amount) revert InsufficientBalance();
-
-        // Update reward index before modifying stake
-        _updateRewardIndex();
-
-        // Update token reward info
-        info.stakedAmount -= amount;
-        info.lastRewardIndex = rewardIndex;
-
-        // Update total staked amount
-        totalStakedAmount -= amount;
-
-        // Update user's stake
-        userStakes[msg.sender][token] -= amount;
-        if (userStakes[msg.sender][token] == 0) {
-            userStakedTokens[msg.sender].remove(token);
-        }
-
-        // Transfer tokens back to user
-        IERC20(superDCAToken).transfer(msg.sender, amount);
-
-        emit Unstaked(token, msg.sender, amount);
-    }
-
-    /**
-     * @notice Retrieves all token pools a user has staked in
-     * @param user The address of the user to query
-     * @return tokens Array of token addresses where the user has active stakes
-     */
-    function getUserStakedTokens(address user) external view returns (address[] memory) {
-        return userStakedTokens[user].values();
-    }
-
-    /**
-     * @notice Retrieves the stake amount for a specific user and token pool
-     * @param user The address of the user to query
-     * @param token The token address representing the pool
-     * @return amount The amount of SuperDCATokens staked
-     */
-    function getUserStakeAmount(address user, address token) external view returns (uint256) {
-        return userStakes[user][token];
-    }
-
-    /**
-     * @notice Calculates the pending rewards for a specific token pool
-     * @dev Includes unclaimed rewards plus accrued rewards since last update
-     * @param token The token address representing the pool
-     * @return The total amount of pending rewards
-     */
-    function getPendingRewards(address token) external view returns (uint256) {
-        TokenRewardInfo storage info = tokenRewardInfos[token];
-        if (info.stakedAmount == 0) return 0;
-        if (totalStakedAmount == 0) return 0;
-
-        uint256 currentTime = block.timestamp;
-        uint256 elapsed = currentTime - lastMinted;
-        uint256 currentIndex = rewardIndex;
-
-        if (elapsed > 0) {
-            uint256 mintAmount = elapsed * mintRate;
-            currentIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
-        }
-
-        return Math.mulDiv(info.stakedAmount, (currentIndex - info.lastRewardIndex), 1e18);
-    }
-
-    /**
-     * @notice Allows the manager to update the mint rate.
-     * @param newMintRate The new rate at which SuperDCATokens are minted per second.
-     */
-    function setMintRate(uint256 newMintRate) external onlyRole(MANAGER_ROLE) {
-        mintRate = newMintRate;
-    }
-
-    /**
      * @notice Allows the admin to update the manager role.
      * @param oldManager The address of the current manager to revoke
      * @param newManager The address of the new manager to grant the role to
@@ -714,7 +540,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param _isInternal True to mark as internal, false to unmark.
      */
     function setInternalAddress(address _user, bool _isInternal) external onlyRole(MANAGER_ROLE) {
-        require(_user != address(0), "Cannot set zero address");
+        if (_user == address(0)) revert ZeroAddress();
         isInternalAddress[_user] = _isInternal;
         emit InternalAddressUpdated(_user, _isInternal);
     }
