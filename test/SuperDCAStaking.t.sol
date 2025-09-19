@@ -65,7 +65,7 @@ contract Constructor is SuperDCAStakingTest {
         assertEq(staking.mintRate(), rate);
         assertEq(staking.lastMinted(), block.timestamp);
         assertEq(staking.rewardIndex(), 0);
-        assertEq(staking.totalStaked(), 0);
+        assertEq(staking.totalStakedAmount(), 0);
         assertEq(staking.owner(), admin);
     }
 
@@ -143,7 +143,7 @@ contract Stake is SuperDCAStakingTest {
         (uint256 stakedAmount, uint256 lastIndex) = staking.tokenRewardInfos(tokenA);
         assertEq(stakedAmount, _amount);
         assertEq(lastIndex, staking.rewardIndex());
-        assertEq(staking.totalStaked(), _amount);
+        assertEq(staking.totalStakedAmount(), _amount);
         assertEq(staking.getUserStake(user, tokenA), _amount);
         assertEq(staking.getUserStakedTokens(user).length, 1);
         assertEq(dca.balanceOf(user), beforeBal - _amount);
@@ -174,12 +174,12 @@ contract Unstake is SuperDCAStakingTest {
     function testFuzz_UpdatesState(uint256 _amount) public {
         _amount = bound(_amount, 1, staking.getUserStake(user, tokenA));
         uint256 beforeBal = dca.balanceOf(user);
-        uint256 beforeTotal = staking.totalStaked();
+        uint256 beforeTotal = staking.totalStakedAmount();
         vm.prank(user);
         staking.unstake(tokenA, _amount);
         (uint256 stakedAmount,) = staking.tokenRewardInfos(tokenA);
         assertEq(stakedAmount, 100e18 - _amount);
-        assertEq(staking.totalStaked(), beforeTotal - _amount);
+        assertEq(staking.totalStakedAmount(), beforeTotal - _amount);
         assertEq(staking.getUserStake(user, tokenA), 100e18 - _amount);
         assertEq(dca.balanceOf(user), beforeBal + _amount);
     }
@@ -232,7 +232,7 @@ contract AccrueReward is SuperDCAStakingTest {
         vm.warp(start + _extra);
         uint256 totalMint = _extra * rate;
         uint256 beforeIndex = staking.rewardIndex();
-        uint256 total = staking.totalStaked();
+        uint256 total = staking.totalStakedAmount();
         uint256 expectedIndex = beforeIndex + (totalMint * 1e18) / total;
         vm.prank(gauge);
         uint256 accruedA = staking.accrueReward(tokenA);
@@ -245,7 +245,7 @@ contract AccrueReward is SuperDCAStakingTest {
         uint256 start = staking.lastMinted();
         vm.warp(start + _extra);
         uint256 beforeIndex = staking.rewardIndex();
-        uint256 total = staking.totalStaked();
+        uint256 total = staking.totalStakedAmount();
         uint256 minted = _extra * rate;
         uint256 expectedIndex = beforeIndex + (minted * 1e18) / total;
         vm.prank(gauge);
@@ -326,7 +326,7 @@ contract TotalStaked is SuperDCAStakingTest {
         staking.stake(tokenB, 70);
         staking.unstake(tokenA, 20);
         vm.stopPrank();
-        assertEq(staking.totalStaked(), 100);
+        assertEq(staking.totalStakedAmount(), 100);
     }
 }
 

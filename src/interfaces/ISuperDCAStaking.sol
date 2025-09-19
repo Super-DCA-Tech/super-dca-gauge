@@ -19,7 +19,7 @@ interface ISuperDCAStaking {
     function getUserStake(address user, address token) external view returns (uint256);
     function getUserStakedTokens(address user) external view returns (address[] memory);
 
-    function totalStaked() external view returns (uint256);
+    function totalStakedAmount() external view returns (uint256);
     function rewardIndex() external view returns (uint256);
     function mintRate() external view returns (uint256);
     function lastMinted() external view returns (uint256);

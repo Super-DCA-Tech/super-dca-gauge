@@ -181,7 +181,7 @@ contract ConstructorTest is SuperDCAGaugeTest {
         assertEq(hook.developerAddress(), developer, "Developer address not set correctly");
         assertEq(staking.mintRate(), mintRate, "Mint rate not set correctly");
         assertEq(staking.lastMinted(), block.timestamp, "Last minted time not set correctly");
-        assertEq(staking.totalStaked(), 0, "Initial staked amount should be 0");
+        assertEq(staking.totalStakedAmount(), 0, "Initial staked amount should be 0");
         assertEq(staking.rewardIndex(), 0, "Initial reward index should be 1e18");
 
         // Test fee initialization
@@ -1174,7 +1174,7 @@ contract RewardsTest is SuperDCAGaugeTest {
         assertEq(staking.getUserStake(address(this), address(usdc)), 300e18, "USDC stake amount incorrect");
 
         // Verify total staked amount
-        assertEq(staking.totalStaked(), 400e18, "Total staked amount incorrect");
+        assertEq(staking.totalStakedAmount(), 400e18, "Total staked amount incorrect");
     }
 
     function test_reward_distribution_multiple_users() public {
@@ -1550,7 +1550,7 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
         assertEq(hook.keeperDeposit(), keeperDeposit, "Keeper deposit should be separate");
 
         assertEq(staking.getUserStake(keeper1, address(weth)), rewardStake, "Reward stake should be separate");
-        assertEq(staking.totalStaked(), rewardStake, "Total staked should only include reward stakes");
+        assertEq(staking.totalStakedAmount(), rewardStake, "Total staked should only include reward stakes");
 
         uint256 expectedBalance = 1000e18 - keeperDeposit - rewardStake;
         assertEq(dcaToken.balanceOf(keeper1), expectedBalance, "Balance should account for both deposits");

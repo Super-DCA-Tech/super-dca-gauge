@@ -193,11 +193,6 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable {
         return userTokenSet[user].values();
     }
 
-    /// @notice Returns the total Super DCA staked across all token buckets.
-    function totalStaked() external view override returns (uint256) {
-        return totalStakedAmount;
-    }
-
     /// @notice Returns the per-token reward info.
     function tokenRewardInfos(address token)
         external
