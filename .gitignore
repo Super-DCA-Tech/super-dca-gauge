@@ -16,4 +16,7 @@ docs/
 # Dotenv file
 .env
 
+# IDE
+.cursor
+
 .DS_Store

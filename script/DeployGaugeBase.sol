@@ -16,6 +16,7 @@ import {HookMiner} from "../test/utils/HookMiner.sol";
 import {ISuperchainERC20} from "../src/interfaces/ISuperchainERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+import {SuperDCAStaking} from "../src/SuperDCAStaking.sol";
 
 abstract contract DeployGaugeBase is Script {
     using CurrencyLibrary for Currency;
@@ -74,11 +75,7 @@ abstract contract DeployGaugeBase is Script {
 
         // Mine the salt that will produce a hook address with the correct flags
         bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager,
-            DCA_TOKEN,
-            hookConfig.developerAddress,
-            hookConfig.mintRate,
-            IPositionManager(POSITION_MANAGER)
+            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, IPositionManager(POSITION_MANAGER)
         );
 
         (address hookAddress, bytes32 salt) =
@@ -89,7 +86,6 @@ abstract contract DeployGaugeBase is Script {
             IPoolManager(hookConfig.poolManager),
             DCA_TOKEN,
             hookConfig.developerAddress,
-            hookConfig.mintRate,
             IPositionManager(POSITION_MANAGER)
         );
 
@@ -104,15 +100,17 @@ abstract contract DeployGaugeBase is Script {
         // ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
         // console2.log("Granted MINTER_ROLE to hook:", address(hook));
 
-        IERC20(DCA_TOKEN).approve(address(hook), 10 ether);
+        // Deploy staking and wire it to hook
+        SuperDCAStaking staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, hookConfig.developerAddress);
+        staking.setGauge(address(hook));
+        hook.setStaking(address(staking));
 
-        // Stake the ETH token to the hook with 600 DCA
-        hook.stake(poolConfig.token0, 6 ether);
-        console2.log("Staked 6 DCA to the ETH/DCA pool");
-
-        // Stake the USDC token to the hook with 400 DCA
-        hook.stake(poolConfig.token1, 4 ether);
-        console2.log("Staked 4 DCA to the USDC/DCA pool");
+        // Approve and stake via staking contract
+        IERC20(DCA_TOKEN).approve(address(staking), 10 ether);
+        staking.stake(poolConfig.token0, 6 ether);
+        console2.log("Staked 6 DCA to the ETH/DCA pool via staking");
+        staking.stake(poolConfig.token1, 4 ether);
+        console2.log("Staked 4 DCA to the USDC/DCA pool via staking");
 
         // Create pool keys for both USDC/DCA and ETH/DCA pools
         PoolKey memory usdcPoolKey = PoolKey({
