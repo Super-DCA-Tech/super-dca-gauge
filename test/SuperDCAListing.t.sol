@@ -225,7 +225,7 @@ contract SetHookAddress is SuperDCAListingTest {
     function test_SetsHookAddress_WhenCalledByAdmin() public {
         IHooks hook = _deployHook();
         vm.prank(developer);
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit SuperDCAListing.HookAddressSet(address(0), address(hook));
         listing.setHookAddress(hook);
     }
@@ -394,17 +394,32 @@ contract CollectFees is SuperDCAListingTest {
         key = _initPoolWithHook(key, hook);
     }
 
-    function test_EmitsFeesCollectedAndPerformsCollection_When_CalledByAdmin() public {
+    function _generateSwapFees(PoolKey memory _key) internal {
+        address token0Addr = Currency.unwrap(_key.currency0);
+        address token1Addr = Currency.unwrap(_key.currency1);
+        deal(token0Addr, address(this), 10_000e18);
+        deal(token1Addr, address(this), 10_000e18);
+        IERC20(token0Addr).approve(address(swapRouter), type(uint256).max);
+        IERC20(token1Addr).approve(address(swapRouter), type(uint256).max);
+        for (uint256 i = 0; i < 5; i++) {
+            swap(_key, true, -int256(10e18), ZERO_BYTES); // token0 -> token1
+            swap(_key, false, -int256(10e18), ZERO_BYTES); // token1 -> token0
+        }
+    }
+
+    function test_CollectFees_IncreasesRecipientBalances_When_CalledByAdmin() public {
         // Mint and list
         uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         listing.list(nfpId, key);
 
-        // Accrue fees
-        _accrueFeesByDonation(key, 5e18, 7e18);
-
+        // Generate actual swap fees by performing swaps in both directions
         address token0Addr = Currency.unwrap(key.currency0);
         address token1Addr = Currency.unwrap(key.currency1);
+
+        _generateSwapFees(key);
+
+        // Record recipient balances before collecting
         address recipient = address(0x1234);
         uint256 b0 = IERC20(token0Addr).balanceOf(recipient);
         uint256 b1 = IERC20(token1Addr).balanceOf(recipient);
@@ -414,6 +429,56 @@ contract CollectFees is SuperDCAListingTest {
 
         assertGt(IERC20(token0Addr).balanceOf(recipient), b0);
         assertGt(IERC20(token1Addr).balanceOf(recipient), b1);
+    }
+
+    function test_EmitsFeesCollected_When_CalledByAdmin() public {
+        // Mint and list
+        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        listing.list(nfpId, key);
+
+        // Generate swap fees to ensure non-zero collection
+        _generateSwapFees(key);
+
+        address token0Addr = Currency.unwrap(key.currency0);
+        address token1Addr = Currency.unwrap(key.currency1);
+        address recipient = address(0xBEEF);
+
+        // Balances before
+        uint256 b0 = IERC20(token0Addr).balanceOf(recipient);
+        uint256 b1 = IERC20(token1Addr).balanceOf(recipient);
+
+        // Record and perform collect
+        vm.recordLogs();
+        vm.prank(developer);
+        listing.collectFees(nfpId, recipient);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // Balances after and expected amounts
+        uint256 a0 = IERC20(token0Addr).balanceOf(recipient);
+        uint256 a1 = IERC20(token1Addr).balanceOf(recipient);
+        uint256 expected0 = a0 - b0;
+        uint256 expected1 = a1 - b1;
+
+        // Find FeesCollected(recipient, token0Addr, token1Addr, expected0, expected1)
+        bytes32 sig = keccak256("FeesCollected(address,address,address,uint256,uint256)");
+        bool found;
+        for (uint256 i = 0; i < logs.length; i++) {
+            Vm.Log memory l = logs[i];
+            if (
+                l.emitter == address(listing) && l.topics.length == 4 && l.topics[0] == sig
+                    && l.topics[1] == bytes32(uint256(uint160(recipient)))
+                    && l.topics[2] == bytes32(uint256(uint160(token0Addr)))
+                    && l.topics[3] == bytes32(uint256(uint160(token1Addr)))
+            ) {
+                (uint256 amt0, uint256 amt1) = abi.decode(l.data, (uint256, uint256));
+                assertEq(amt0, expected0, "amount0 mismatch");
+                assertEq(amt1, expected1, "amount1 mismatch");
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "FeesCollected log not found");
     }
 
     function test_RevertWhen_CollectFeesCalledByNonAdmin(address _notAdmin) public {
