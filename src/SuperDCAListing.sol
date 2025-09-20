@@ -30,11 +30,11 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     // External dependencies
-    IPoolManager public immutable poolManager;
-    IPositionManager public immutable positionManagerV4;
+    IPoolManager public immutable POOL_MANAGER;
+    IPositionManager public immutable POSITION_MANAGER_V4;
 
     // Configuration
-    address public immutable superDCAToken;
+    address public immutable SUPER_DCA_TOKEN;
     IHooks public expectedHooks; // Gauge hook address that must match key.hooks
 
     // Listing state
@@ -69,9 +69,9 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         IHooks _expectedHooks
     ) {
         if (_superDCAToken == address(0) || _admin == address(0)) revert ZeroAddress();
-        superDCAToken = _superDCAToken;
-        poolManager = _poolManager;
-        positionManagerV4 = _positionManagerV4;
+        SUPER_DCA_TOKEN = _superDCAToken;
+        POOL_MANAGER = _poolManager;
+        POSITION_MANAGER_V4 = _positionManagerV4;
         expectedHooks = _expectedHooks;
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
@@ -102,33 +102,33 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         {
             address token0Addr = Currency.unwrap(key.currency0);
             address token1Addr = Currency.unwrap(key.currency1);
-            if (token0Addr != superDCAToken && token1Addr != superDCAToken) {
+            if (token0Addr != SUPER_DCA_TOKEN && token1Addr != SUPER_DCA_TOKEN) {
                 revert PoolMustIncludeSuperDCAToken();
             }
         }
 
         // full-range enforcement via position info
         {
-            PositionInfo _pi = positionManagerV4.positionInfo(nftId);
+            PositionInfo _pi = POSITION_MANAGER_V4.positionInfo(nftId);
             int24 _tickLower = _pi.tickLower();
             int24 _tickUpper = _pi.tickUpper();
             if (
                 _tickLower != TickMath.minUsableTick(key.tickSpacing)
-                    && _tickUpper != TickMath.maxUsableTick(key.tickSpacing)
+                    || _tickUpper != TickMath.maxUsableTick(key.tickSpacing)
             ) {
                 revert NotFullRangePosition();
             }
 
             // liquidity amounts
-            uint128 _liquidity = positionManagerV4.getPositionLiquidity(nftId);
+            uint128 _liquidity = POSITION_MANAGER_V4.getPositionLiquidity(nftId);
             (uint256 amount0, uint256 amount1) = _getAmountsForKey(key, _tickLower, _tickUpper, _liquidity);
 
             address listedToken;
             uint256 dcaAmount;
-            if (Currency.unwrap(key.currency0) == superDCAToken) {
+            if (Currency.unwrap(key.currency0) == SUPER_DCA_TOKEN) {
                 listedToken = Currency.unwrap(key.currency1);
                 dcaAmount = amount0;
-            } else if (Currency.unwrap(key.currency1) == superDCAToken) {
+            } else if (Currency.unwrap(key.currency1) == SUPER_DCA_TOKEN) {
                 listedToken = Currency.unwrap(key.currency0);
                 dcaAmount = amount1;
             } else {
@@ -144,7 +144,7 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         }
 
         // take custody of the NFP
-        IERC721(address(positionManagerV4)).transferFrom(msg.sender, address(this), nftId);
+        IERC721(address(POSITION_MANAGER_V4)).transferFrom(msg.sender, address(this), nftId);
         emit TokenListed(tokenOfNfp[nftId], nftId, key);
     }
 
@@ -153,7 +153,7 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         view
         returns (uint256 amount0, uint256 amount1)
     {
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
+        (uint160 sqrtPriceX96,,,) = POOL_MANAGER.getSlot0(key.toId());
         uint160 sqrtPriceAX96 = TickMath.getSqrtPriceAtTick(tickLower);
         uint160 sqrtPriceBX96 = TickMath.getSqrtPriceAtTick(tickUpper);
         return (LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceAX96, sqrtPriceBX96, liquidity));
@@ -163,7 +163,7 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         if (nfpId == 0) revert UniswapTokenNotSet();
         if (recipient == address(0)) revert InvalidAddress();
 
-        (PoolKey memory key,) = positionManagerV4.getPoolAndPositionInfo(nfpId);
+        (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nfpId);
         Currency token0 = key.currency0;
         Currency token1 = key.currency1;
 
@@ -177,7 +177,7 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         params[1] = abi.encode(token0, token1, recipient);
 
         uint256 deadline = block.timestamp + 60;
-        positionManagerV4.modifyLiquidities(abi.encode(actions, params), deadline);
+        POSITION_MANAGER_V4.modifyLiquidities(abi.encode(actions, params), deadline);
 
         uint256 balance0After = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
         uint256 balance1After = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
