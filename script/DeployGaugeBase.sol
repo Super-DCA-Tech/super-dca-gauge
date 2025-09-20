@@ -96,13 +96,6 @@ abstract contract DeployGaugeBase is Script {
 
         console2.log("Deployed Hook:", address(hook));
 
-        // // Add the hook as a minter on the DCA token
-        // console2.log("DCA Token:", DCA_TOKEN);
-        // console2.log("Hook:", address(hook));
-        // console2.log("Deployer:", vm.addr(deployerPrivateKey));
-        // ISuperchainERC20(DCA_TOKEN).grantRole(MINTER_ROLE, address(hook));
-        // console2.log("Granted MINTER_ROLE to hook:", address(hook));
-
         // Deploy staking (owned by developer) and listing (admin = developer, expected hook = deployed hook)
         SuperDCAStaking staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, hookConfig.developerAddress);
         listing = new SuperDCAListing(
@@ -145,6 +138,21 @@ abstract contract DeployGaugeBase is Script {
         console2.log("Hook:", address(hook));
         console2.log("Listing:", address(listing));
         console2.log("Deployer:", vm.addr(deployerPrivateKey));
+
+        // Transfer ownership of the Super DCA token to the hook so it can mint tokens
+        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
+        console2.log("Transferred Super DCA token ownership to hook");
+
+        // Recover the Super DCA token ownership (for sanity)
+        hook.returnSuperDCATokenOwnership();
+        console2.log("Recovered Super DCA token ownership");
+        if (ISuperchainERC20(DCA_TOKEN).owner() != vm.addr(deployerPrivateKey)) {
+            revert("Hook should own the token");
+        }
+
+        // Transfer ownership of the Super DCA token to the hook
+        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
+        console2.log("Transferred Super DCA token ownership to hook");
 
         vm.stopBroadcast();
 
