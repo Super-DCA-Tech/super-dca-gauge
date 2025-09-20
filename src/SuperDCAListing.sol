@@ -51,13 +51,11 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
     );
 
     // Errors (mirroring legacy gauge for compatibility)
-    error NotDynamicFee();
     error UniswapTokenNotSet();
     error IncorrectHookAddress();
     error LowLiquidity();
     error NotFullRangePosition();
     error TokenAlreadyListed();
-    error PoolMustIncludeSuperDCAToken();
     error ZeroAddress();
     error InvalidAddress();
     error MismatchedPoolKey();
@@ -104,19 +102,8 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         }
 
         // hooks address must match configured hook (the gauge)
+        // also enforces dynamic fee and the DCA token being in the pool
         if (address(key.hooks) != address(expectedHooks)) revert IncorrectHookAddress();
-
-        // dynamic fee enforcement
-        if (!key.fee.isDynamicFee()) revert NotDynamicFee();
-
-        // pool must include the DCA token
-        {
-            address token0Addr = Currency.unwrap(key.currency0);
-            address token1Addr = Currency.unwrap(key.currency1);
-            if (token0Addr != SUPER_DCA_TOKEN && token1Addr != SUPER_DCA_TOKEN) {
-                revert PoolMustIncludeSuperDCAToken();
-            }
-        }
 
         // full-range enforcement via position info
         {
@@ -139,11 +126,9 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
             if (Currency.unwrap(key.currency0) == SUPER_DCA_TOKEN) {
                 listedToken = Currency.unwrap(key.currency1);
                 dcaAmount = amount0;
-            } else if (Currency.unwrap(key.currency1) == SUPER_DCA_TOKEN) {
+            } else {
                 listedToken = Currency.unwrap(key.currency0);
                 dcaAmount = amount1;
-            } else {
-                revert PoolMustIncludeSuperDCAToken();
             }
 
             if (dcaAmount < minLiquidity) revert LowLiquidity();

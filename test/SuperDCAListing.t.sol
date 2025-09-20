@@ -10,21 +10,29 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IPositionDescriptor} from "lib/v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "lib/v4-periphery/src/interfaces/external/IWETH9.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
+import {Permit2Bytecode} from "test/utils/Permit2Bytecode.sol";
 import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
+import {Planner, Plan} from "lib/v4-periphery/test/shared/Planner.sol";
+import {LiquidityAmounts as PeripheryLiquidityAmounts} from "lib/v4-periphery/src/libraries/LiquidityAmounts.sol";
+import {SuperDCAGauge} from "src/SuperDCAGauge.sol";
+import {FakeStaking} from "test/fakes/FakeStaking.sol";
 
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
 import {SuperDCAListing} from "../src/SuperDCAListing.sol";
-import {FeesCollectionMock} from "./mocks/FeesCollectionMock.sol";
 
 contract SuperDCAListingTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
+    using StateLibrary for IPoolManager;
 
     // system
     MockERC20Token public dcaToken;
@@ -35,8 +43,7 @@ contract SuperDCAListingTest is Test, Deployers {
     // Use Deployers.key inherited field
     PoolId poolId;
 
-    // permit2 real address used in tests elsewhere
-    IAllowanceTransfer public constant PERMIT2 = IAllowanceTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
+    IAllowanceTransfer public permit2;
 
     address developer = address(0xDEADBEEF);
 
@@ -66,10 +73,14 @@ contract SuperDCAListingTest is Test, Deployers {
         // Deploy core Uniswap V4
         deployFreshManagerAndRouters();
 
-        // PositionManager
+        // PositionManager with etched local Permit2 runtime bytecode
         Deployers.deployMintAndApprove2Currencies();
+        bytes memory p2code = new Permit2Bytecode().getBytecode();
+        address p2addr = makeAddr("permit2");
+        vm.etch(p2addr, p2code);
+        permit2 = IAllowanceTransfer(p2addr);
         posM = new PositionManager(
-            IPoolManager(address(manager)), PERMIT2, 5000, IPositionDescriptor(address(0)), IWETH9(address(weth))
+            IPoolManager(address(manager)), permit2, 5000, IPositionDescriptor(address(0)), IWETH9(address(weth))
         );
         positionManagerV4 = IPositionManager(address(posM));
 
@@ -91,6 +102,22 @@ contract SuperDCAListingTest is Test, Deployers {
         );
         bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, positionManagerV4);
         deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
+        // Set a no-op staking implementation to prevent hook reverts on add liquidity
+        FakeStaking fake = new FakeStaking();
+        vm.prank(developer);
+        SuperDCAGauge(address(flags)).setStaking(address(fake));
+        return IHooks(flags);
+    }
+
+    function _deployHookWithSalt(uint16 salt) internal returns (IHooks hook) {
+        address flags = address(
+            uint160(
+                Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                    | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG
+            ) ^ (uint160(salt) << 144)
+        );
+        bytes memory constructorArgs = abi.encode(manager, dcaToken, developer, positionManagerV4);
+        deployCodeTo("SuperDCAGauge.sol:SuperDCAGauge", constructorArgs, flags);
         return IHooks(flags);
     }
 
@@ -100,82 +127,83 @@ contract SuperDCAListingTest is Test, Deployers {
         return _key;
     }
 
-    function _mockGetPoolAndPositionInfo(uint256 nfpId, PoolKey memory _key) internal {
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, nfpId),
-            abi.encode(_key, bytes32(0))
-        );
+    // ----- New E2E helpers -----
+    function _fundAndApprove(address owner, address token, uint256 amt) internal {
+        deal(token, owner, amt);
+        vm.prank(owner);
+        IERC20(token).approve(address(permit2), type(uint256).max);
+        vm.prank(owner);
+        permit2.approve(token, address(posM), type(uint160).max, type(uint48).max);
     }
 
-    function _mockFullRangePosition(uint256 nfpId, int24 tickSpacing) internal {
-        int24 minTick = TickMath.minUsableTick(tickSpacing);
-        int24 maxTick = TickMath.maxUsableTick(tickSpacing);
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
-            abi.encode(
-                PositionInfo.wrap(
-                    (uint256(uint24(uint256(int256(maxTick)))) << 32) | (uint256(uint24(uint256(int256(minTick)))) << 8)
-                )
-            )
-        );
+    function _liquidityForAmounts(PoolKey memory _key, uint256 amount0, uint256 amount1)
+        internal
+        view
+        returns (uint256 liq)
+    {
+        (uint160 sqrtPriceX96,,,) = manager.getSlot0(_key.toId());
+        uint160 sqrtA = TickMath.getSqrtPriceAtTick(TickMath.minUsableTick(_key.tickSpacing));
+        uint160 sqrtB = TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(_key.tickSpacing));
+        liq = PeripheryLiquidityAmounts.getLiquidityForAmounts(sqrtPriceX96, sqrtA, sqrtB, amount0, amount1);
     }
 
-    function _mockNotFullRangePosition(uint256 nfpId) internal {
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
-            abi.encode(PositionInfo.wrap(uint256(bytes32(abi.encodePacked(int24(-60), int24(60))))))
+    function _mintFullRange(PoolKey memory _key, uint256 amount0, uint256 amount1, address owner)
+        internal
+        returns (uint256 nfpId)
+    {
+        // Fund and approve owner for both tokens via Permit2
+        _fundAndApprove(owner, Currency.unwrap(_key.currency0), amount0);
+        _fundAndApprove(owner, Currency.unwrap(_key.currency1), amount1);
+
+        int24 lower = TickMath.minUsableTick(_key.tickSpacing);
+        int24 upper = TickMath.maxUsableTick(_key.tickSpacing);
+        uint256 liquidity = _liquidityForAmounts(_key, amount0, amount1);
+
+        Plan memory planner = Planner.init();
+        planner = planner.add(
+            Actions.MINT_POSITION,
+            abi.encode(_key, lower, upper, liquidity, type(uint128).max, type(uint128).max, owner, bytes(""))
         );
+        bytes memory calls = planner.finalizeModifyLiquidityWithClose(_key);
+
+        nfpId = positionManagerV4.nextTokenId();
+        vm.prank(owner);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
     }
 
-    function _mockPartialRangeLowerWrong(uint256 nfpId, int24 tickSpacing) internal {
-        int24 minTick = TickMath.minUsableTick(tickSpacing);
-        int24 maxTick = TickMath.maxUsableTick(tickSpacing);
-        int24 wrongLower = minTick + tickSpacing; // still aligned but not full-range
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
-            abi.encode(
-                PositionInfo.wrap(
-                    (uint256(uint24(uint256(int256(maxTick)))) << 32)
-                        | (uint256(uint24(uint256(int256(wrongLower)))) << 8)
-                )
-            )
+    function _mintNarrow(PoolKey memory _key, int24 lower, int24 upper, uint256 amount0, uint256 amount1, address owner)
+        internal
+        returns (uint256 nfpId)
+    {
+        _fundAndApprove(owner, Currency.unwrap(_key.currency0), amount0);
+        _fundAndApprove(owner, Currency.unwrap(_key.currency1), amount1);
+
+        (uint160 sqrtPriceX96,,,) = manager.getSlot0(_key.toId());
+        uint160 sqrtA = TickMath.getSqrtPriceAtTick(lower);
+        uint160 sqrtB = TickMath.getSqrtPriceAtTick(upper);
+        uint256 liquidity =
+            PeripheryLiquidityAmounts.getLiquidityForAmounts(sqrtPriceX96, sqrtA, sqrtB, amount0, amount1);
+
+        Plan memory planner = Planner.init();
+        planner = planner.add(
+            Actions.MINT_POSITION,
+            abi.encode(_key, lower, upper, liquidity, type(uint128).max, type(uint128).max, owner, bytes(""))
         );
+        bytes memory calls = planner.finalizeModifyLiquidityWithClose(_key);
+
+        nfpId = positionManagerV4.nextTokenId();
+        vm.prank(owner);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
     }
 
-    function _mockPartialRangeUpperWrong(uint256 nfpId, int24 tickSpacing) internal {
-        int24 minTick = TickMath.minUsableTick(tickSpacing);
-        int24 maxTick = TickMath.maxUsableTick(tickSpacing);
-        int24 wrongUpper = maxTick - tickSpacing; // still aligned but not full-range
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
-            abi.encode(
-                PositionInfo.wrap(
-                    (uint256(uint24(uint256(int256(wrongUpper)))) << 32)
-                        | (uint256(uint24(uint256(int256(minTick)))) << 8)
-                )
-            )
-        );
-    }
-
-    function _mockLiquidity(uint256 nfpId, uint128 liq) internal {
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, nfpId),
-            abi.encode(liq)
-        );
-    }
-
-    function _expectNfpTransfer(uint256 nfpId) internal {
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IERC721.transferFrom.selector, address(this), address(listing), nfpId),
-            abi.encode(true)
-        );
+    function _accrueFeesByDonation(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
+        address t0 = Currency.unwrap(_key.currency0);
+        address t1 = Currency.unwrap(_key.currency1);
+        deal(t0, address(this), amt0);
+        deal(t1, address(this), amt1);
+        IERC20(t0).approve(address(donateRouter), amt0);
+        IERC20(t1).approve(address(donateRouter), amt1);
+        donateRouter.donate(_key, amt0, amt1, "");
     }
 
     function _expectedNonDcaToken(PoolKey memory _key) internal view returns (address) {
@@ -242,22 +270,26 @@ contract List is SuperDCAListingTest {
         vm.prank(developer);
         listing.setHookAddress(hook);
 
+        // Set a no-op staking to prevent hook reverts on add liquidity
+        FakeStaking fake = new FakeStaking();
+        vm.prank(developer);
+        SuperDCAGauge(address(hook)).setStaking(address(fake));
+
         // assign hook to key and initialize pool
         key = _initPoolWithHook(key, hook);
     }
 
     function test_EmitsTokenListedAndRegistersToken_When_ValidFullRangeAndLiquidity() public {
-        PoolKey memory keyWithDca = _createPoolKey(
-            address(dcaToken), address(new MockERC20Token("ALT", "ALT", 18)), LPFeeLibrary.DYNAMIC_FEE_FLAG
-        );
+        // Initialize a pool that includes the DCA token
+        MockERC20Token alt = new MockERC20Token("ALT", "ALT", 18);
+        PoolKey memory keyWithDca = _createPoolKey(address(dcaToken), address(alt), LPFeeLibrary.DYNAMIC_FEE_FLAG);
         keyWithDca = _initPoolWithHook(keyWithDca, key.hooks);
 
-        uint256 nfpId = 123;
-        _mockGetPoolAndPositionInfo(nfpId, keyWithDca);
-        _mockFullRangePosition(nfpId, 60);
-        _mockLiquidity(nfpId, uint128(2000 * 10 ** 18));
-        _expectNfpTransfer(nfpId);
+        // Mint a full-range NFP
+        uint256 nfpId = _mintFullRange(keyWithDca, 2_000e18, 2_000e18, address(this));
 
+        // Approve transfer to listing and list
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         address expectedToken = _expectedNonDcaToken(keyWithDca);
         vm.expectEmit(true, true, false, true);
         emit TokenListed(expectedToken, nfpId, keyWithDca);
@@ -265,14 +297,22 @@ contract List is SuperDCAListingTest {
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
+        assertEq(IERC721(address(positionManagerV4)).ownerOf(nfpId), address(listing));
     }
 
     function test_RevertWhen_IncorrectHookAddress() public {
+        // Initialize pool with one hook, but configure listing with a different expected hook
+        IHooks hookB = _deployHookWithSalt(0x4243);
+        vm.prank(developer);
+        listing.setHookAddress(hookB);
+
+        // Use the already-initialized pool key with hookA
         PoolKey memory wrongHookKey = key;
-        wrongHookKey.hooks = IHooks(address(0x1234));
-        _mockGetPoolAndPositionInfo(1, wrongHookKey);
+        uint256 nfpId = _mintFullRange(wrongHookKey, 1_000e18, 1_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+
         vm.expectRevert(SuperDCAListing.IncorrectHookAddress.selector);
-        listing.list(1, wrongHookKey);
+        listing.list(nfpId, wrongHookKey);
     }
 
     function test_RevertWhen_NftIdIsZero() public {
@@ -280,78 +320,55 @@ contract List is SuperDCAListingTest {
         listing.list(0, key);
     }
 
-    function test_RevertWhen_FeeIsNotDynamic() public {
-        PoolKey memory staticFeeKey = key;
-        staticFeeKey.fee = 500; // not dynamic
-        _mockGetPoolAndPositionInfo(1, staticFeeKey);
-        vm.expectRevert(SuperDCAListing.NotDynamicFee.selector);
-        listing.list(1, staticFeeKey);
-    }
-
     function test_RevertWhen_PositionIsNotFullRange() public {
-        uint256 nfpId = 456;
-        _mockGetPoolAndPositionInfo(nfpId, key);
-        _mockNotFullRangePosition(nfpId);
+        int24 minTick = TickMath.minUsableTick(key.tickSpacing);
+        int24 maxTick = TickMath.maxUsableTick(key.tickSpacing);
+        uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
 
     function test_RevertWhen_PartialRange_LowerWrong() public {
-        uint256 nfpId = 457;
-        _mockGetPoolAndPositionInfo(nfpId, key);
-        _mockPartialRangeLowerWrong(nfpId, 60);
+        int24 minTick = TickMath.minUsableTick(key.tickSpacing);
+        int24 maxTick = TickMath.maxUsableTick(key.tickSpacing);
+        uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
 
     function test_RevertWhen_PartialRange_UpperWrong() public {
-        uint256 nfpId = 458;
-        _mockGetPoolAndPositionInfo(nfpId, key);
-        _mockPartialRangeUpperWrong(nfpId, 60);
+        int24 minTick = TickMath.minUsableTick(key.tickSpacing);
+        int24 maxTick = TickMath.maxUsableTick(key.tickSpacing);
+        uint256 nfpId = _mintNarrow(key, minTick, maxTick - key.tickSpacing, 1_000e18, 1_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
 
-    function test_RevertWhen_PoolDoesNotIncludeDcaToken() public {
-        PoolKey memory nonDcaKey = _createPoolKey(address(weth), address(0xBEEF), LPFeeLibrary.DYNAMIC_FEE_FLAG);
-        nonDcaKey.hooks = key.hooks;
-        _mockGetPoolAndPositionInfo(1, nonDcaKey);
-        vm.expectRevert(SuperDCAListing.PoolMustIncludeSuperDCAToken.selector);
-        listing.list(1, nonDcaKey);
-    }
-
     function test_RevertWhen_LiquidityBelowMinimum() public {
-        uint256 nfpId = 789;
-        _mockGetPoolAndPositionInfo(nfpId, key);
-        _mockFullRangePosition(nfpId, 60);
-        _mockLiquidity(nfpId, uint128(500 * 10 ** 18));
+        // Mint tiny liquidity
+        uint256 nfpId = _mintFullRange(key, 1e9, 1e9, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.LowLiquidity.selector);
         listing.list(nfpId, key);
     }
 
     function test_RevertWhen_TokenAlreadyListed() public {
-        uint256 id1 = 111;
-        _mockGetPoolAndPositionInfo(id1, key);
-        _mockFullRangePosition(id1, 60);
-        _mockLiquidity(id1, uint128(2000 * 10 ** 18));
-        _expectNfpTransfer(id1);
+        uint256 id1 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), id1);
         listing.list(id1, key);
 
-        uint256 id2 = 112;
-        _mockGetPoolAndPositionInfo(id2, key);
-        _mockFullRangePosition(id2, 60);
-        _mockLiquidity(id2, uint128(2000 * 10 ** 18));
-        _expectNfpTransfer(id2);
+        uint256 id2 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), id2);
         vm.expectRevert(SuperDCAListing.TokenAlreadyListed.selector);
         listing.list(id2, key);
     }
 
     function test_RevertWhen_MismatchedPoolKeyProvided() public {
-        uint256 nfpId = 4242;
-        // actual key is the initialized one
-        _mockGetPoolAndPositionInfo(nfpId, key);
-
-        // provided key differs only in tickSpacing to trigger MismatchedPoolKey
+        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         PoolKey memory provided = key;
         provided.tickSpacing = 30;
         vm.expectRevert(SuperDCAListing.MismatchedPoolKey.selector);
@@ -369,39 +386,34 @@ contract CollectFees is SuperDCAListingTest {
         IHooks hook = SuperDCAListingTest._deployHook();
         vm.prank(developer);
         listing.setHookAddress(hook);
+
+        // Set a no-op staking to prevent hook reverts on add liquidity
+        FakeStaking fake = new FakeStaking();
+        vm.prank(developer);
+        SuperDCAGauge(address(hook)).setStaking(address(fake));
         key = _initPoolWithHook(key, hook);
     }
 
     function test_EmitsFeesCollectedAndPerformsCollection_When_CalledByAdmin() public {
-        // Arrange: mock pool info for NFP
-        uint256 nfpId = 9999;
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, nfpId),
-            abi.encode(key, bytes32(0))
-        );
+        // Mint and list
+        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        listing.list(nfpId, key);
+
+        // Accrue fees
+        _accrueFeesByDonation(key, 5e18, 7e18);
 
         address token0Addr = Currency.unwrap(key.currency0);
         address token1Addr = Currency.unwrap(key.currency1);
         address recipient = address(0x1234);
+        uint256 b0 = IERC20(token0Addr).balanceOf(recipient);
+        uint256 b1 = IERC20(token1Addr).balanceOf(recipient);
 
-        // Seed balances
-        deal(token0Addr, recipient, 1000e18);
-        deal(token1Addr, recipient, 1000e18);
-
-        // Mock PositionManager.modifyLiquidities call path using helper that transfers tokens
-        new FeesCollectionMock(token0Addr, token1Addr, recipient, 10e18, 5e18);
-        vm.mockCall(
-            address(posM),
-            abi.encodeWithSelector(IPositionManager.modifyLiquidities.selector),
-            abi.encode(bytes4(0x43dc74a4))
-        );
-
-        // Act
         vm.prank(developer);
-        vm.expectEmit(true, true, true, false);
-        emit FeesCollected(recipient, token0Addr, token1Addr, 0, 0);
         listing.collectFees(nfpId, recipient);
+
+        assertGt(IERC20(token0Addr).balanceOf(recipient), b0);
+        assertGt(IERC20(token1Addr).balanceOf(recipient), b1);
     }
 
     function test_RevertWhen_CollectFeesCalledByNonAdmin(address _notAdmin) public {
