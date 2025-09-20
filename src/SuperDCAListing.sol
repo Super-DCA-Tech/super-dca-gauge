@@ -21,42 +21,72 @@ import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.s
 import {ISuperDCAListing} from "./interfaces/ISuperDCAListing.sol";
 import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 
+/// @title SuperDCAListing
+/// @notice Manages listing of tokens for Super DCA by taking custody of full-range Uniswap v4 NFP positions
+///         that pair `SUPER_DCA_TOKEN` with the listed token and meet minimum liquidity requirements.
+/// @dev Enforces that the position's hook matches the configured gauge hook and that the position is full-range.
+///      Uses AccessControl; the `DEFAULT_ADMIN_ROLE` can configure the hook, minimum liquidity, and collect fees.
 contract SuperDCAListing is ISuperDCAListing, AccessControl {
     using PoolIdLibrary for PoolKey;
     using LPFeeLibrary for uint24;
     using StateLibrary for IPoolManager;
 
     // External dependencies
+    /// @notice The Uniswap v4 `IPoolManager` used for pool state queries.
     IPoolManager public immutable POOL_MANAGER;
+    /// @notice The Uniswap v4 `IPositionManager` used to query and manage NFP positions.
     IPositionManager public immutable POSITION_MANAGER_V4;
 
     // Configuration
+    /// @notice The address of the Super DCA ERC20 token that must be one side of any listed pool.
     address public immutable SUPER_DCA_TOKEN;
+    /// @notice The expected Uniswap v4 hook (gauge) address; must match the hook embedded in a listed pool's `PoolKey`.
     IHooks public expectedHooks; // Gauge hook address that must match key.hooks
 
     // Listing state
+    /// @notice The minimum amount of Super DCA token liquidity required in the full-range position to list the token.
     uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum DCA liquidity required
-    mapping(address => bool) public override isTokenListed; // token => listed?
-    mapping(uint256 => address) public override tokenOfNfp; // nfpId => listed token
+    /// @notice Tracks whether a token has been listed.
+    mapping(address token => bool listed) public override isTokenListed;
+    /// @notice Maps a listed NFP tokenId to the corresponding listed token address.
+    mapping(uint256 nfpId => address token) public override tokenOfNfp;
 
     // Events
+    /// @notice Emitted when a token is successfully listed by transferring custody of the NFP to this contract.
     event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
+    /// @notice Emitted when the minimum required liquidity is updated.
     event MinimumLiquidityUpdated(uint256 oldMin, uint256 newMin);
+    /// @notice Emitted when the expected hook (gauge) address is updated.
     event HookAddressSet(address indexed oldHook, address indexed newHook);
+    /// @notice Emitted after fees are collected for a listed position.
     event FeesCollected(
         address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
     );
 
-    // Errors (mirroring legacy gauge for compatibility)
+    // Errors
+    /// @notice Thrown when `nftId` is zero or when a required Uniswap token address is not set.
     error UniswapTokenNotSet();
+    /// @notice Thrown when the provided `PoolKey.hooks` does not match the configured `expectedHooks`.
     error IncorrectHookAddress();
+    /// @notice Thrown when the detected Super DCA token liquidity does not meet `minLiquidity`.
     error LowLiquidity();
+    /// @notice Thrown when the NFP does not represent a full-range position for the pool's tick spacing.
     error NotFullRangePosition();
+    /// @notice Thrown when attempting to list a token that is already listed.
     error TokenAlreadyListed();
+    /// @notice Thrown when a zero address is provided where a non-zero address is required.
     error ZeroAddress();
+    /// @notice Thrown when an invalid (e.g. zero) address is supplied for operations like fee collection recipient.
     error InvalidAddress();
+    /// @notice Thrown when the provided `PoolKey` does not match the actual key derived from the NFP.
     error MismatchedPoolKey();
 
+    /// @notice Initializes the SuperDCAListing contract.
+    /// @param _superDCAToken The address of the Super DCA ERC20 token.
+    /// @param _poolManager The Uniswap v4 `IPoolManager` address.
+    /// @param _positionManagerV4 The Uniswap v4 `IPositionManager` address.
+    /// @param _admin The address that will be granted `DEFAULT_ADMIN_ROLE`.
+    /// @param _expectedHooks The expected hook (gauge) address embedded in valid `PoolKey`s.
     constructor(
         address _superDCAToken,
         IPoolManager _poolManager,
@@ -73,17 +103,34 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
     }
 
+    /// @notice Sets the expected Uniswap v4 hook (gauge) address that must match any listed position's `PoolKey.hooks`.
+    /// @dev Callable only by an account with `DEFAULT_ADMIN_ROLE`.
+    /// @param _newHook The new hook address to enforce.
     function setHookAddress(IHooks _newHook) external onlyRole(DEFAULT_ADMIN_ROLE) {
         emit HookAddressSet(address(expectedHooks), address(_newHook));
         expectedHooks = _newHook;
     }
 
+    /// @notice Updates the minimum Super DCA liquidity requirement for listing.
+    /// @dev Callable only by an account with `DEFAULT_ADMIN_ROLE`.
+    /// @param _minLiquidity The new minimum liquidity threshold.
     function setMinimumLiquidity(uint256 _minLiquidity) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 old = minLiquidity;
         minLiquidity = _minLiquidity;
         emit MinimumLiquidityUpdated(old, _minLiquidity);
     }
 
+    /// @notice Lists a token by validating and taking custody of a full-range Uniswap v4 position NFT.
+    /// @dev Requirements:
+    /// - `nftId != 0`
+    /// - The provided `providedKey` must match the actual `PoolKey` for `nftId`.
+    /// - `key.hooks` must equal `expectedHooks`.
+    /// - The position must be full-range for `key.tickSpacing`.
+    /// - The detected Super DCA token liquidity must be at least `minLiquidity`.
+    /// - The corresponding non-Super DCA token must not already be listed.
+    /// On success, custody of the NFP is transferred to this contract and a `TokenListed` event is emitted.
+    /// @param nftId The Uniswap v4 position tokenId to list.
+    /// @param providedKey The `PoolKey` provided by the caller, which must match the position's actual key.
     function list(uint256 nftId, PoolKey calldata providedKey) external override {
         if (nftId == 0) revert UniswapTokenNotSet();
 
@@ -140,6 +187,14 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         emit TokenListed(tokenOfNfp[nftId], nftId, key);
     }
 
+    /// @notice Computes token amounts represented by a given full-range liquidity position.
+    /// @dev Uses the current pool price from `POOL_MANAGER.getSlot0` and standard Uniswap v4 helpers.
+    /// @param key The pool key.
+    /// @param tickLower The lower tick of the position (expected min usable tick).
+    /// @param tickUpper The upper tick of the position (expected max usable tick).
+    /// @param liquidity The position liquidity.
+    /// @return amount0 The calculated amount of token0 represented by the position.
+    /// @return amount1 The calculated amount of token1 represented by the position.
     function _getAmountsForKey(PoolKey memory key, int24 tickLower, int24 tickUpper, uint128 liquidity)
         internal
         view
@@ -151,6 +206,12 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         return (LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceAX96, sqrtPriceBX96, liquidity));
     }
 
+    /// @notice Collects fees for a listed position and sends them to `recipient`.
+    /// @dev Callable only by an account with `DEFAULT_ADMIN_ROLE`.
+    /// Reverts if `nfpId` is zero or `recipient` is the zero address.
+    /// Emits `FeesCollected` with the deltas of the recipient's token balances.
+    /// @param nfpId The Uniswap v4 position tokenId whose fees to collect.
+    /// @param recipient The address to receive the collected fees.
     function collectFees(uint256 nfpId, address recipient) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (nfpId == 0) revert UniswapTokenNotSet();
         if (recipient == address(0)) revert InvalidAddress();

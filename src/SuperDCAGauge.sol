@@ -137,16 +137,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Collects fees from the Uniswap V4 position and transfers them to the recipient
-     * @param nfpId The ID of the Non-Fungible Position (NFP) to collect fees from
-     * @param recipient The address to which the collected fees will be sent
-     * @dev This function collects fees from a specific Uniswap V4 position and transfers
-     * the collected fees to the specified recipient
-     * and emits an event for the collected fees.
-     */
-    // collectFees moved to SuperDCAListing
-
-    /**
      * @notice Sets the external listing contract used for token listing queries.
      */
     function setListing(address _listing) external onlyRole(DEFAULT_ADMIN_ROLE) {
