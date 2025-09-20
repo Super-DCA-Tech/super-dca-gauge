@@ -220,7 +220,7 @@ contract Constructor is SuperDCAListingTest {
         assertEq(address(listing.POSITION_MANAGER_V4()), address(positionManagerV4));
         assertTrue(listing.hasRole(listing.DEFAULT_ADMIN_ROLE(), developer));
     }
-    
+
     function test_RevertWhen_InvalidSuperDCAToken() public {
         vm.expectRevert(SuperDCAListing.ZeroAddress.selector);
         new SuperDCAListing(address(0), manager, positionManagerV4, developer, IHooks(address(0)));
