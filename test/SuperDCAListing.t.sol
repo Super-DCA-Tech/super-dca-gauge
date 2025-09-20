@@ -436,7 +436,7 @@ contract CollectFees is SuperDCAListingTest {
         // Expect the FeesCollected event with exact values
         vm.expectEmit();
         // 1 wei is lost due to precision in the donation/collection process (TAKE_PAIR action)
-        emit FeesCollected(recipient, token0Addr, token1Addr, expected0, expected1);
+        emit FeesCollected(recipient, token0Addr, token1Addr, expected0 - 1, expected1 - 1);
 
         vm.prank(developer);
         listing.collectFees(nfpId, recipient);
