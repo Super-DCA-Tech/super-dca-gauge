@@ -116,8 +116,7 @@ contract SuperDCAListingTest is Test, Deployers {
             abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
             abi.encode(
                 PositionInfo.wrap(
-                    (uint256(uint24(uint256(int256(maxTick)))) << 32)
-                        | (uint256(uint24(uint256(int256(minTick)))) << 8)
+                    (uint256(uint24(uint256(int256(maxTick)))) << 32) | (uint256(uint24(uint256(int256(minTick)))) << 8)
                 )
             )
         );
@@ -165,7 +164,9 @@ contract SuperDCAListingTest is Test, Deployers {
 
     function _mockLiquidity(uint256 nfpId, uint128 liq) internal {
         vm.mockCall(
-            address(posM), abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, nfpId), abi.encode(liq)
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPositionLiquidity.selector, nfpId),
+            abi.encode(liq)
         );
     }
 

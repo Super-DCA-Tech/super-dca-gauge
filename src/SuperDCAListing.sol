@@ -97,9 +97,8 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nftId);
         if (
             Currency.unwrap(key.currency0) != Currency.unwrap(providedKey.currency0)
-                || Currency.unwrap(key.currency1) != Currency.unwrap(providedKey.currency1)
-                || key.fee != providedKey.fee || key.tickSpacing != providedKey.tickSpacing
-                || address(key.hooks) != address(providedKey.hooks)
+                || Currency.unwrap(key.currency1) != Currency.unwrap(providedKey.currency1) || key.fee != providedKey.fee
+                || key.tickSpacing != providedKey.tickSpacing || address(key.hooks) != address(providedKey.hooks)
         ) {
             revert MismatchedPoolKey();
         }
