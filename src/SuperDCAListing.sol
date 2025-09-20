@@ -26,9 +26,6 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
     using LPFeeLibrary for uint24;
     using StateLibrary for IPoolManager;
 
-    // Roles
-    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
-
     // External dependencies
     IPoolManager public immutable POOL_MANAGER;
     IPositionManager public immutable POSITION_MANAGER_V4;
@@ -74,7 +71,6 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         expectedHooks = _expectedHooks;
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(MANAGER_ROLE, _admin);
     }
 
     function setHookAddress(IHooks _newHook) external onlyRole(DEFAULT_ADMIN_ROLE) {

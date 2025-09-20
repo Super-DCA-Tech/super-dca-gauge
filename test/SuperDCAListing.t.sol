@@ -218,6 +218,17 @@ contract Constructor is SuperDCAListingTest {
         assertEq(address(listing.SUPER_DCA_TOKEN()), address(dcaToken));
         assertEq(address(listing.POOL_MANAGER()), address(manager));
         assertEq(address(listing.POSITION_MANAGER_V4()), address(positionManagerV4));
+        assertTrue(listing.hasRole(listing.DEFAULT_ADMIN_ROLE(), developer));
+    }
+    
+    function test_RevertWhen_InvalidSuperDCAToken() public {
+        vm.expectRevert(SuperDCAListing.ZeroAddress.selector);
+        new SuperDCAListing(address(0), manager, positionManagerV4, developer, IHooks(address(0)));
+    }
+
+    function test_RevertWhen_InvalidAdmin() public {
+        vm.expectRevert(SuperDCAListing.ZeroAddress.selector);
+        new SuperDCAListing(address(dcaToken), manager, positionManagerV4, address(0), IHooks(address(0)));
     }
 }
 
@@ -277,6 +288,25 @@ contract List is SuperDCAListingTest {
 
         // assign hook to key and initialize pool
         key = _initPoolWithHook(key, hook);
+    }
+
+    // Deterministically deploy a MockERC20Token at a specific address using deployCodeTo
+    function _deployAltAt(address where) internal returns (MockERC20Token) {
+        bytes memory args = abi.encode("ALT", "ALT", uint8(18));
+        deployCodeTo("test/mocks/MockERC20Token.sol:MockERC20Token", args, where);
+        return MockERC20Token(where);
+    }
+
+    function _addressGreaterThan(address ref) internal pure returns (address) {
+        unchecked {
+            return address(uint160(uint160(ref) + 1));
+        }
+    }
+
+    function _addressLessThan(address ref) internal pure returns (address) {
+        unchecked {
+            return address(uint160(uint160(ref) - 1));
+        }
     }
 
     function test_EmitsTokenListedAndRegistersToken_When_ValidFullRangeAndLiquidity() public {
@@ -373,6 +403,48 @@ contract List is SuperDCAListingTest {
         provided.tickSpacing = 30;
         vm.expectRevert(SuperDCAListing.MismatchedPoolKey.selector);
         listing.list(nfpId, provided);
+    }
+
+    function test_RegistersTokenAndTransfersNfp_When_DcaTokenIsCurrency0() public {
+        // Ensure currency0 is the DCA token by deploying ALT at an address greater than DCA
+        address altAddr = _addressGreaterThan(address(dcaToken));
+        MockERC20Token alt = _deployAltAt(altAddr);
+        PoolKey memory keyWithDca0 = _createPoolKey(address(dcaToken), address(alt), LPFeeLibrary.DYNAMIC_FEE_FLAG);
+        keyWithDca0 = _initPoolWithHook(keyWithDca0, key.hooks);
+
+        // Sanity: DCA must be currency0 for this branch
+        assertEq(Currency.unwrap(keyWithDca0.currency0), address(dcaToken), "DCA not currency0");
+
+        uint256 nfpId = _mintFullRange(keyWithDca0, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        address expectedToken = _expectedNonDcaToken(keyWithDca0);
+
+        listing.list(nfpId, keyWithDca0);
+
+        assertTrue(listing.isTokenListed(expectedToken));
+        assertEq(listing.tokenOfNfp(nfpId), expectedToken);
+        assertEq(IERC721(address(positionManagerV4)).ownerOf(nfpId), address(listing));
+    }
+
+    function test_RegistersTokenAndTransfersNfp_When_DcaTokenIsCurrency1() public {
+        // Ensure currency1 is the DCA token by deploying ALT at an address less than DCA
+        address altAddr = _addressLessThan(address(dcaToken));
+        MockERC20Token alt = _deployAltAt(altAddr);
+        PoolKey memory keyWithDca1 = _createPoolKey(address(dcaToken), address(alt), LPFeeLibrary.DYNAMIC_FEE_FLAG);
+        keyWithDca1 = _initPoolWithHook(keyWithDca1, key.hooks);
+
+        // Sanity: DCA must be currency1 for this branch
+        assertEq(Currency.unwrap(keyWithDca1.currency1), address(dcaToken), "DCA not currency1");
+
+        uint256 nfpId = _mintFullRange(keyWithDca1, 2_000e18, 2_000e18, address(this));
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        address expectedToken = _expectedNonDcaToken(keyWithDca1);
+
+        listing.list(nfpId, keyWithDca1);
+
+        assertTrue(listing.isTokenListed(expectedToken));
+        assertEq(listing.tokenOfNfp(nfpId), expectedToken);
+        assertEq(IERC721(address(positionManagerV4)).ownerOf(nfpId), address(listing));
     }
 }
 
