@@ -177,8 +177,6 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         uint256 collectedAmount0 = balance0After - balance0Before;
         uint256 collectedAmount1 = balance1After - balance1Before;
 
-        // TODO: Collected fees should be transferred to the protocol fees contract
-
         emit FeesCollected(
             recipient, Currency.unwrap(token0), Currency.unwrap(token1), collectedAmount0, collectedAmount1
         );
