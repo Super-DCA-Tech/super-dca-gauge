@@ -60,6 +60,7 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
     error PoolMustIncludeSuperDCAToken();
     error ZeroAddress();
     error InvalidAddress();
+    error MismatchedPoolKey();
 
     constructor(
         address _superDCAToken,
@@ -89,11 +90,22 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         emit MinimumLiquidityUpdated(old, _minLiquidity);
     }
 
-    function list(uint256 nftId, PoolKey calldata key) external override {
+    function list(uint256 nftId, PoolKey calldata providedKey) external override {
+        if (nftId == 0) revert UniswapTokenNotSet();
+
+        // Derive the actual key from the position manager and ensure it matches caller input
+        (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nftId);
+        if (
+            Currency.unwrap(key.currency0) != Currency.unwrap(providedKey.currency0)
+                || Currency.unwrap(key.currency1) != Currency.unwrap(providedKey.currency1)
+                || key.fee != providedKey.fee || key.tickSpacing != providedKey.tickSpacing
+                || address(key.hooks) != address(providedKey.hooks)
+        ) {
+            revert MismatchedPoolKey();
+        }
+
         // hooks address must match configured hook (the gauge)
         if (address(key.hooks) != address(expectedHooks)) revert IncorrectHookAddress();
-
-        if (nftId == 0) revert UniswapTokenNotSet();
 
         // dynamic fee enforcement
         if (!key.fee.isDynamicFee()) revert NotDynamicFee();
@@ -148,7 +160,7 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         emit TokenListed(tokenOfNfp[nftId], nftId, key);
     }
 
-    function _getAmountsForKey(PoolKey calldata key, int24 tickLower, int24 tickUpper, uint128 liquidity)
+    function _getAmountsForKey(PoolKey memory key, int24 tickLower, int24 tickUpper, uint128 liquidity)
         internal
         view
         returns (uint256 amount0, uint256 amount1)

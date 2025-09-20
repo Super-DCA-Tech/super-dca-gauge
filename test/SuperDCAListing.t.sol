@@ -40,7 +40,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
     address developer = address(0xDEADBEEF);
 
-    function _createPoolKey(address tokenA, address tokenB, uint24 fee) internal view returns (PoolKey memory k) {
+    function _createPoolKey(address tokenA, address tokenB, uint24 fee) internal pure returns (PoolKey memory k) {
         return tokenA < tokenB
             ? PoolKey({
                 currency0: Currency.wrap(tokenA),
@@ -100,6 +100,14 @@ contract SuperDCAListingTest is Test, Deployers {
         return _key;
     }
 
+    function _mockGetPoolAndPositionInfo(uint256 nfpId, PoolKey memory _key) internal {
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.getPoolAndPositionInfo.selector, nfpId),
+            abi.encode(_key, bytes32(0))
+        );
+    }
+
     function _mockFullRangePosition(uint256 nfpId, int24 tickSpacing) internal {
         int24 minTick = TickMath.minUsableTick(tickSpacing);
         int24 maxTick = TickMath.maxUsableTick(tickSpacing);
@@ -120,6 +128,38 @@ contract SuperDCAListingTest is Test, Deployers {
             address(posM),
             abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
             abi.encode(PositionInfo.wrap(uint256(bytes32(abi.encodePacked(int24(-60), int24(60))))))
+        );
+    }
+
+    function _mockPartialRangeLowerWrong(uint256 nfpId, int24 tickSpacing) internal {
+        int24 minTick = TickMath.minUsableTick(tickSpacing);
+        int24 maxTick = TickMath.maxUsableTick(tickSpacing);
+        int24 wrongLower = minTick + tickSpacing; // still aligned but not full-range
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(uint24(uint256(int256(maxTick)))) << 32)
+                        | (uint256(uint24(uint256(int256(wrongLower)))) << 8)
+                )
+            )
+        );
+    }
+
+    function _mockPartialRangeUpperWrong(uint256 nfpId, int24 tickSpacing) internal {
+        int24 minTick = TickMath.minUsableTick(tickSpacing);
+        int24 maxTick = TickMath.maxUsableTick(tickSpacing);
+        int24 wrongUpper = maxTick - tickSpacing; // still aligned but not full-range
+        vm.mockCall(
+            address(posM),
+            abi.encodeWithSelector(IPositionManager.positionInfo.selector, nfpId),
+            abi.encode(
+                PositionInfo.wrap(
+                    (uint256(uint24(uint256(int256(wrongUpper)))) << 32)
+                        | (uint256(uint24(uint256(int256(minTick)))) << 8)
+                )
+            )
         );
     }
 
@@ -212,6 +252,7 @@ contract List is SuperDCAListingTest {
         keyWithDca = _initPoolWithHook(keyWithDca, key.hooks);
 
         uint256 nfpId = 123;
+        _mockGetPoolAndPositionInfo(nfpId, keyWithDca);
         _mockFullRangePosition(nfpId, 60);
         _mockLiquidity(nfpId, uint128(2000 * 10 ** 18));
         _expectNfpTransfer(nfpId);
@@ -228,6 +269,7 @@ contract List is SuperDCAListingTest {
     function test_RevertWhen_IncorrectHookAddress() public {
         PoolKey memory wrongHookKey = key;
         wrongHookKey.hooks = IHooks(address(0x1234));
+        _mockGetPoolAndPositionInfo(1, wrongHookKey);
         vm.expectRevert(SuperDCAListing.IncorrectHookAddress.selector);
         listing.list(1, wrongHookKey);
     }
@@ -240,13 +282,31 @@ contract List is SuperDCAListingTest {
     function test_RevertWhen_FeeIsNotDynamic() public {
         PoolKey memory staticFeeKey = key;
         staticFeeKey.fee = 500; // not dynamic
+        _mockGetPoolAndPositionInfo(1, staticFeeKey);
         vm.expectRevert(SuperDCAListing.NotDynamicFee.selector);
         listing.list(1, staticFeeKey);
     }
 
     function test_RevertWhen_PositionIsNotFullRange() public {
         uint256 nfpId = 456;
+        _mockGetPoolAndPositionInfo(nfpId, key);
         _mockNotFullRangePosition(nfpId);
+        vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
+        listing.list(nfpId, key);
+    }
+
+    function test_RevertWhen_PartialRange_LowerWrong() public {
+        uint256 nfpId = 457;
+        _mockGetPoolAndPositionInfo(nfpId, key);
+        _mockPartialRangeLowerWrong(nfpId, 60);
+        vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
+        listing.list(nfpId, key);
+    }
+
+    function test_RevertWhen_PartialRange_UpperWrong() public {
+        uint256 nfpId = 458;
+        _mockGetPoolAndPositionInfo(nfpId, key);
+        _mockPartialRangeUpperWrong(nfpId, 60);
         vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
@@ -254,12 +314,14 @@ contract List is SuperDCAListingTest {
     function test_RevertWhen_PoolDoesNotIncludeDcaToken() public {
         PoolKey memory nonDcaKey = _createPoolKey(address(weth), address(0xBEEF), LPFeeLibrary.DYNAMIC_FEE_FLAG);
         nonDcaKey.hooks = key.hooks;
+        _mockGetPoolAndPositionInfo(1, nonDcaKey);
         vm.expectRevert(SuperDCAListing.PoolMustIncludeSuperDCAToken.selector);
         listing.list(1, nonDcaKey);
     }
 
     function test_RevertWhen_LiquidityBelowMinimum() public {
         uint256 nfpId = 789;
+        _mockGetPoolAndPositionInfo(nfpId, key);
         _mockFullRangePosition(nfpId, 60);
         _mockLiquidity(nfpId, uint128(500 * 10 ** 18));
         vm.expectRevert(SuperDCAListing.LowLiquidity.selector);
@@ -268,17 +330,31 @@ contract List is SuperDCAListingTest {
 
     function test_RevertWhen_TokenAlreadyListed() public {
         uint256 id1 = 111;
+        _mockGetPoolAndPositionInfo(id1, key);
         _mockFullRangePosition(id1, 60);
         _mockLiquidity(id1, uint128(2000 * 10 ** 18));
         _expectNfpTransfer(id1);
         listing.list(id1, key);
 
         uint256 id2 = 112;
+        _mockGetPoolAndPositionInfo(id2, key);
         _mockFullRangePosition(id2, 60);
         _mockLiquidity(id2, uint128(2000 * 10 ** 18));
         _expectNfpTransfer(id2);
         vm.expectRevert(SuperDCAListing.TokenAlreadyListed.selector);
         listing.list(id2, key);
+    }
+
+    function test_RevertWhen_MismatchedPoolKeyProvided() public {
+        uint256 nfpId = 4242;
+        // actual key is the initialized one
+        _mockGetPoolAndPositionInfo(nfpId, key);
+
+        // provided key differs only in tickSpacing to trigger MismatchedPoolKey
+        PoolKey memory provided = key;
+        provided.tickSpacing = 30;
+        vm.expectRevert(SuperDCAListing.MismatchedPoolKey.selector);
+        listing.list(nfpId, provided);
     }
 }
 
@@ -313,7 +389,7 @@ contract CollectFees is SuperDCAListingTest {
         deal(token1Addr, recipient, 1000e18);
 
         // Mock PositionManager.modifyLiquidities call path using helper that transfers tokens
-        FeesCollectionMock helper = new FeesCollectionMock(token0Addr, token1Addr, recipient, 10e18, 5e18);
+        new FeesCollectionMock(token0Addr, token1Addr, recipient, 10e18, 5e18);
         vm.mockCall(
             address(posM),
             abi.encodeWithSelector(IPositionManager.modifyLiquidities.selector),
