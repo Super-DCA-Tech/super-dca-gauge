@@ -6,12 +6,13 @@ import {ISuperDCAGauge} from "./interfaces/ISuperDCAGauge.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title SuperDCAStaking
 /// @notice Staking and reward index accounting for Super DCA pools, isolated from the Uniswap V4 hook.
 /// @dev This contract does accounting only. The Gauge is responsible for minting and donating rewards.
-contract SuperDCAStaking is ISuperDCAStaking, Ownable {
+contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @notice The Super DCA token used for staking and accounting.
@@ -69,7 +70,8 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable {
 
     /// @notice Sets the authorized Gauge address.
     /// @param _gauge The Gauge address allowed to call accrueReward.
-    function setGauge(address _gauge) external override onlyOwner {
+    function setGauge(address _gauge) external override {
+        _checkOwner();
         if (_gauge == address(0)) revert SuperDCAStaking__ZeroAddress();
         gauge = _gauge;
         emit GaugeSet(_gauge);

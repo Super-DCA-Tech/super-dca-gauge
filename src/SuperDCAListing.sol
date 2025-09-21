@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.22;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -25,8 +26,8 @@ import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 /// @notice Manages listing of tokens for Super DCA by taking custody of full-range Uniswap v4 NFP positions
 ///         that pair `SUPER_DCA_TOKEN` with the listed token and meet minimum liquidity requirements.
 /// @dev Enforces that the position's hook matches the configured gauge hook and that the position is full-range.
-///      Uses AccessControl; the `DEFAULT_ADMIN_ROLE` can configure the hook, minimum liquidity, and collect fees.
-contract SuperDCAListing is ISuperDCAListing, AccessControl {
+///      Uses Ownable2Step; the owner can configure the hook, minimum liquidity, and collect fees.
+contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
     using PoolIdLibrary for PoolKey;
     using LPFeeLibrary for uint24;
     using StateLibrary for IPoolManager;
@@ -93,28 +94,28 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
         IPositionManager _positionManagerV4,
         address _admin,
         IHooks _expectedHooks
-    ) {
-        if (_superDCAToken == address(0) || _admin == address(0)) revert ZeroAddress();
+    ) Ownable(_admin) {
+        if (_superDCAToken == address(0)) revert ZeroAddress();
         SUPER_DCA_TOKEN = _superDCAToken;
         POOL_MANAGER = _poolManager;
         POSITION_MANAGER_V4 = _positionManagerV4;
         expectedHooks = _expectedHooks;
-
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
     }
 
     /// @notice Sets the expected Uniswap v4 hook (gauge) address that must match any listed position's `PoolKey.hooks`.
-    /// @dev Callable only by an account with `DEFAULT_ADMIN_ROLE`.
+    /// @dev Callable only by the owner.
     /// @param _newHook The new hook address to enforce.
-    function setHookAddress(IHooks _newHook) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setHookAddress(IHooks _newHook) external {
+        _checkOwner();
         emit HookAddressSet(address(expectedHooks), address(_newHook));
         expectedHooks = _newHook;
     }
 
     /// @notice Updates the minimum Super DCA liquidity requirement for listing.
-    /// @dev Callable only by an account with `DEFAULT_ADMIN_ROLE`.
+    /// @dev Callable only by the owner.
     /// @param _minLiquidity The new minimum liquidity threshold.
-    function setMinimumLiquidity(uint256 _minLiquidity) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setMinimumLiquidity(uint256 _minLiquidity) external override {
+        _checkOwner();
         uint256 old = minLiquidity;
         minLiquidity = _minLiquidity;
         emit MinimumLiquidityUpdated(old, _minLiquidity);
@@ -207,12 +208,13 @@ contract SuperDCAListing is ISuperDCAListing, AccessControl {
     }
 
     /// @notice Collects fees for a listed position and sends them to `recipient`.
-    /// @dev Callable only by an account with `DEFAULT_ADMIN_ROLE`.
+    /// @dev Callable only by the owner.
     /// Reverts if `nfpId` is zero or `recipient` is the zero address.
     /// Emits `FeesCollected` with the deltas of the recipient's token balances.
     /// @param nfpId The Uniswap v4 position tokenId whose fees to collect.
     /// @param recipient The address to receive the collected fees.
-    function collectFees(uint256 nfpId, address recipient) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function collectFees(uint256 nfpId, address recipient) external override {
+        _checkOwner();
         if (nfpId == 0) revert UniswapTokenNotSet();
         if (recipient == address(0)) revert InvalidAddress();
 

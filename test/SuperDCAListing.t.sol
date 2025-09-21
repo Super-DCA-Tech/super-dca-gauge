@@ -28,6 +28,7 @@ import {FakeStaking} from "test/fakes/FakeStaking.sol";
 
 import {MockERC20Token} from "./mocks/MockERC20Token.sol";
 import {SuperDCAListing} from "../src/SuperDCAListing.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract SuperDCAListingTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
@@ -218,7 +219,7 @@ contract Constructor is SuperDCAListingTest {
         assertEq(address(listing.SUPER_DCA_TOKEN()), address(dcaToken));
         assertEq(address(listing.POOL_MANAGER()), address(manager));
         assertEq(address(listing.POSITION_MANAGER_V4()), address(positionManagerV4));
-        assertTrue(listing.hasRole(listing.DEFAULT_ADMIN_ROLE(), developer));
+        assertEq(listing.owner(), developer);
     }
 
     function test_RevertWhen_InvalidSuperDCAToken() public {
@@ -227,7 +228,7 @@ contract Constructor is SuperDCAListingTest {
     }
 
     function test_RevertWhen_InvalidAdmin() public {
-        vm.expectRevert(SuperDCAListing.ZeroAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
         new SuperDCAListing(address(dcaToken), manager, positionManagerV4, address(0), IHooks(address(0)));
     }
 }
@@ -245,7 +246,7 @@ contract SetHookAddress is SuperDCAListingTest {
         vm.assume(_notAdmin != developer && _notAdmin != address(0));
         IHooks hook = _deployHook();
         vm.prank(_notAdmin);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notAdmin));
         listing.setHookAddress(hook);
     }
 }
@@ -264,7 +265,7 @@ contract SetMinimumLiquidity is SuperDCAListingTest {
     function test_RevertWhen_SetMinimumLiquidityCalledByNonAdmin(address _notAdmin, uint256 _newMin) public {
         vm.assume(_notAdmin != developer && _notAdmin != address(0));
         vm.prank(_notAdmin);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notAdmin));
         listing.setMinimumLiquidity(_newMin);
     }
 }
@@ -516,8 +517,8 @@ contract CollectFees is SuperDCAListingTest {
 
     function test_RevertWhen_CollectFeesCalledByNonAdmin(address _notAdmin) public {
         vm.assume(_notAdmin != developer && _notAdmin != address(0));
-        vm.expectRevert();
         vm.prank(_notAdmin);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notAdmin));
         listing.collectFees(1, address(0x1234));
     }
 
