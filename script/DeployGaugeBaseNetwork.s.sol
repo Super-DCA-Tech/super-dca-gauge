@@ -15,7 +15,7 @@ contract DeployGaugeBaseNetwork is DeployGaugeBase {
     address public constant ETH = address(0);
     address public constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
-    function run() public override returns (SuperDCAGauge) {
+    function run() public override returns (DeployedContracts memory) {
         return super.run();
     }
 

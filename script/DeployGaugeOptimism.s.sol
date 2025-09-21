@@ -15,7 +15,7 @@ contract DeployGaugeBaseOptimism is DeployGaugeBase {
     address public constant ETH = address(0); // Native ETH uses address(0)
     address public constant USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85; // Sepolia USDC
 
-    function run() public override returns (SuperDCAGauge) {
+    function run() public override returns (DeployedContracts memory) {
         return super.run();
     }
 

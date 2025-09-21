@@ -15,7 +15,7 @@ contract DeployGaugeUnichain is DeployGaugeBase {
     address public constant ETH = address(0);
     address public constant USDC = 0x078D782b760474a361dDA0AF3839290b0EF57AD6;
 
-    function run() public override returns (SuperDCAGauge) {
+    function run() public override returns (DeployedContracts memory) {
         return super.run();
     }
 
