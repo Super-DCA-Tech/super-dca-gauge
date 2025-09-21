@@ -16,9 +16,6 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 
 /// @notice Integration tests for SuperDCAGauge on Optimism mainnet fork
 contract OptimismGaugeIntegration is OptimismIntegrationBase {
-    // StateView contract for reading pool state on Optimism
-    IStateView constant STATE_VIEW = IStateView(0xc18a3169788F4F75A170290584ECA6395C75Ecdb);
-    
     /// @notice Test pool initialization with correct parameters
     function testFork_InitializePool_Success() public {
         // ---- Arrange ----
@@ -35,7 +32,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         assertTrue(key.fee == LPFeeLibrary.DYNAMIC_FEE_FLAG, "Pool should have dynamic fee enabled");
 
         // Verify pool was actually initialized by checking its state using StateView
-        (uint160 price, int24 tick, uint24 protocolFee, uint24 lpFee) = STATE_VIEW.getSlot0(poolId);
+        (uint160 price, int24 tick,,) = STATE_VIEW.getSlot0(poolId);
         assertEq(price, sqrtPriceX96, "Pool price should match initialization price");
         assertGt(tick, type(int24).min, "Pool tick should be initialized");
 
@@ -80,7 +77,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
     function testFork_SwapFees_DifferentUserTypes() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(60), sqrtPriceX96);
+        _createTestPool(WETH, int24(60), sqrtPriceX96);
 
         // Set up different user types
         address internalUser = makeAddr("internal");

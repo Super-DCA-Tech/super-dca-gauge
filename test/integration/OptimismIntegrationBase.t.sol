@@ -25,6 +25,7 @@ import {LiquidityAmounts} from "lib/v4-periphery/src/libraries/LiquidityAmounts.
 import {PositionConfig} from "lib/v4-periphery/src/libraries/PositionConfig.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IV4Router} from "lib/v4-periphery/src/interfaces/IV4Router.sol";
+import {IStateView} from "lib/v4-periphery/src/interfaces/IStateView.sol";
 
 // Universal Router and Swapping
 /// @notice Issues with importing the universal router solved with these imports
@@ -91,9 +92,9 @@ contract OptimismIntegrationBase is Test {
     address constant POOL_MANAGER = 0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3;
     address constant POSITION_MANAGER_V4 = 0x3C3Ea4B57a46241e54610e5f022E5c45859A1017;
     address constant QUOTER = 0x1f3131A13296FB91C90870043742C3CDBFF1A8d7;
-    address constant STATE_VIEW = 0xc18a3169788F4F75A170290584ECA6395C75Ecdb;
     address constant UNIVERSAL_ROUTER = 0x851116D9223fabED8E56C0E6b8Ad0c31d98B3507;
     address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+    IStateView constant STATE_VIEW = IStateView(0xc18a3169788F4F75A170290584ECA6395C75Ecdb);
 
     // Optimism native tokens
     address constant WETH = 0x4200000000000000000000000000000000000006;
@@ -345,18 +346,18 @@ contract OptimismIntegrationBase is Test {
     }
 
     /// @notice Helper to check if a token is properly listed
-    function _assertTokenListed(address token, uint256 expectedNftId) internal {
+    function _assertTokenListed(address token, uint256 expectedNftId) internal view {
         assertTrue(listing.isTokenListed(token), "Token should be listed");
         assertEq(listing.tokenOfNfp(expectedNftId), token, "NFT should map to token");
     }
 
     /// @notice Helper to assert stake amounts
-    function _assertStakeAmount(address user, address token, uint256 expectedAmount) internal {
+    function _assertStakeAmount(address user, address token, uint256 expectedAmount) internal view {
         assertEq(staking.getUserStake(user, token), expectedAmount, "Stake amount mismatch");
     }
 
     /// @notice Helper to assert total staked amount
-    function _assertTotalStaked(uint256 expectedTotal) internal {
+    function _assertTotalStaked(uint256 expectedTotal) internal view {
         assertEq(staking.totalStakedAmount(), expectedTotal, "Total staked amount mismatch");
     }
 
@@ -520,11 +521,10 @@ contract OptimismIntegrationBase is Test {
 
     /// @notice Execute a simpler swap using pool manager directly (for comparison)
     /// @param key The pool key for the swap
-    /// @param amountIn The exact amount to swap in
     /// @param swapper The address performing the swap
     /// @param zeroForOne Direction of the swap
     /// @return result SwapResult struct with swap details
-    function _executeDirectSwap(PoolKey memory key, int128 amountIn, address swapper, bool zeroForOne)
+    function _executeDirectSwap(PoolKey memory key, int128, /* amountIn */ address swapper, bool zeroForOne)
         internal
         returns (SwapResult memory result)
     {
@@ -535,11 +535,8 @@ contract OptimismIntegrationBase is Test {
         uint256 balanceOutBefore = IERC20(tokenOut).balanceOf(swapper);
 
         // Prepare swap parameters
-        IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
-            zeroForOne: zeroForOne,
-            amountSpecified: amountIn,
-            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
-        });
+        // Note: This is a placeholder for direct swap implementation
+        // The actual swap would require proper unlock callback implementation
 
         uint256 gasStart = gasleft();
 
@@ -600,13 +597,13 @@ contract OptimismIntegrationBase is Test {
     /// @notice Assert that swap fees were applied correctly
     /// @param result The swap result to verify
     /// @param expectedFee The expected fee in basis points
-    function _assertCorrectFeeApplied(SwapResult memory result, uint24 expectedFee) internal {
+    function _assertCorrectFeeApplied(SwapResult memory result, uint24 expectedFee) internal pure {
         assertEq(result.feeApplied, expectedFee, "Incorrect fee applied to swap");
     }
 
     /// @notice Compare swap results between different user types
     /// @param results Array of swap results to compare
-    function _compareSwapResults(SwapResult[] memory results) internal {
+    function _compareSwapResults(SwapResult[] memory results) internal pure {
         require(results.length >= 2, "Need at least 2 results to compare");
 
         // Higher fees should result in lower output amounts for same input
