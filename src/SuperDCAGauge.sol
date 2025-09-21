@@ -16,11 +16,8 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
-import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
-import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
 import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
+import {ISuperDCAListing} from "./interfaces/ISuperDCAListing.sol";
 
 /**
  * @title SuperDCAGauge
@@ -49,10 +46,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
-    using TickMath for int24;
 
     IPositionManager public positionManagerV4; // The Uniswap V4 position manager for managing positions
-    uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum liquidity for a position to be listed
+    ISuperDCAListing public listing; // External listing module
 
     // Constants
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
@@ -91,17 +87,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     // External staking module
     ISuperDCAStaking public staking;
-    mapping(address => bool) public isTokenListed; // Track if a token is listed
-    mapping(uint256 => address) public tokenOfNfp; // Stores the token corresponding to a listed NFP
 
     // Events
     event InternalAddressUpdated(address indexed user, bool isInternal);
     event FeeUpdated(FeeType indexed feeType, uint24 oldFee, uint24 newFee);
     event SuperDCATokenOwnershipReturned(address indexed newOwner);
-    event FeesCollected(
-        address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
-    );
-    event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
     event KeeperChanged(address indexed oldKeeper, address indexed newKeeper, uint256 deposit);
 
     // Errors
@@ -112,10 +102,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     error PoolMustIncludeSuperDCAToken();
     error UniswapTokenNotSet();
     error NotTheOwner();
-    error IncorrectHookAddress();
-    error LowLiquidity();
-    error NotFullRangePosition();
-    error TokenAlreadyListed();
     error InvalidAddress();
     error ZeroAddress();
 
@@ -151,165 +137,18 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Collects fees from the Uniswap V4 position and transfers them to the recipient
-     * @param nfpId The ID of the Non-Fungible Position (NFP) to collect fees from
-     * @param recipient The address to which the collected fees will be sent
-     * @dev This function collects fees from a specific Uniswap V4 position and transfers
-     * the collected fees to the specified recipient
-     * and emits an event for the collected fees.
+     * @notice Sets the external listing contract used for token listing queries.
      */
-    function collectFees(uint256 nfpId, address recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (nfpId == 0) {
-            revert UniswapTokenNotSet();
-        }
-        if (recipient == address(0)) {
-            revert InvalidAddress();
-        }
-
-        (PoolKey memory key,) = positionManagerV4.getPoolAndPositionInfo(nfpId);
-        Currency token0 = key.currency0;
-        Currency token1 = key.currency1;
-
-        // tokens balances from recipient before collecting fees
-        uint256 balance0Before = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
-        uint256 balance1Before = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
-
-        // Encode actions: DECREASE_LIQUIDITY (with zero liquidity) + TAKE_PAIR
-        bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
-
-        // Prepare parameters and encode them for each action
-        bytes[] memory params = new bytes[](2);
-
-        // DECREASE_LIQUIDITY(tokenId, liquidity=0, amount0Min=0, amount1Min=0, hookData)
-        params[0] = abi.encode(nfpId, uint256(0), uint128(0), uint128(0), bytes(""));
-        // TAKE_PAIR(currency0, currency1, recipient)
-        params[1] = abi.encode(token0, token1, recipient);
-
-        // Execute the actions by calling the PositionManager
-        uint256 deadline = block.timestamp + 60;
-
-        positionManagerV4.modifyLiquidities(abi.encode(actions, params), deadline);
-
-        // balances after collecting fees
-        uint256 balance0After = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
-        uint256 balance1After = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
-
-        // Calculate the collected amounts
-        uint256 collectedAmount0 = balance0After - balance0Before;
-        uint256 collectedAmount1 = balance1After - balance1Before;
-
-        // Emit event for collected fees
-
-        emit FeesCollected(
-            recipient, Currency.unwrap(token0), Currency.unwrap(token1), collectedAmount0, collectedAmount1
-        );
+    function setListing(address _listing) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        listing = ISuperDCAListing(_listing);
     }
 
     /**
-     *
-     * @param nftId the Non-Fungible Position (NFP) ID to list
-     * @param key the PoolKey of the position to list
-     * @notice Lists a Non-Fungible Position (NFP) for DCA trading
-     * @dev This function allows users to list their NFPs for DCA trading by providing
-     * the NFP ID and the PoolKey. It checks if the token is already listed,
-     * verifies the position's liquidity, and ensures the pool fee is a dynamic fee.
-     * It also checks that the position is a full range position.
-     * @dev The position must be a full range position, meaning it covers the entire tick range.
-     * @dev The function transfers the NFP ownership from the user to this contract.
+     * @notice Forwards listing status queries to the external listing contract.
      */
-    function list(uint256 nftId, PoolKey calldata key) external {
-        PoolId poolId = key.toId();
-
-        // check that the hooks address is this contrat address
-        if (key.hooks != IHooks(address(this))) {
-            revert IncorrectHookAddress();
-        }
-
-        // check that the nftId is not zero
-        if (nftId == 0) {
-            revert UniswapTokenNotSet();
-        }
-
-        // check that the pool fee is dyamic fee value
-        if (!key.fee.isDynamicFee()) revert NotDynamicFee();
-
-        //check that the position is full range position
-        PositionInfo positionInfo = positionManagerV4.positionInfo(nftId);
-        int24 tickLower = positionInfo.tickLower();
-        int24 tickUpper = positionInfo.tickUpper();
-
-        if (
-            tickLower != TickMath.minUsableTick(key.tickSpacing) && tickUpper != TickMath.maxUsableTick(key.tickSpacing) // I think this is the best way to check if the position is full range. check it please!!!
-        ) {
-            revert NotFullRangePosition();
-        }
-        // liquidity amounts
-        uint128 liquidity = positionManagerV4.getPositionLiquidity(nftId);
-
-        (uint256 amount0, uint256 amount1) = _getAmounts(poolId, tickLower, tickUpper, liquidity);
-        TokenAmounts memory ta; // Token amounts to be used for DCA trading
-        ta.token0 = Currency.unwrap(key.currency0);
-        ta.token1 = Currency.unwrap(key.currency1);
-
-        address tok; // The token that is not the SuperDCAToken
-
-        // check that DCA token is one of the tokens in the pool and set the token amounts accordingly
-        if (ta.token0 == address(superDCAToken)) {
-            ta.dcaToken = ta.token0;
-            tok = ta.token1;
-            ta.dcaAmount = amount0;
-            ta.tokAmount = amount1;
-        } else if (ta.token1 == address(superDCAToken)) {
-            ta.dcaToken = ta.token1;
-            tok = ta.token0;
-            ta.dcaAmount = amount1;
-            ta.tokAmount = amount0;
-        } else {
-            revert PoolMustIncludeSuperDCAToken();
-        }
-
-        // check that the position has liquidity greater than 1000 DCA tokens
-        if (ta.dcaAmount < minLiquidity) {
-            revert LowLiquidity();
-        }
-
-        // check that the token is not already listed
-        if (isTokenListed[tok]) {
-            revert TokenAlreadyListed();
-        }
-        isTokenListed[tok] = true;
-        tokenOfNfp[nftId] = tok;
-
-        // transfer the NFP ownership from user to this contract
-
-        IERC721(address(positionManagerV4)).transferFrom(msg.sender, address(this), nftId);
-
-        emit TokenListed(tok, nftId, key);
-    }
-
-    function setMinimumLiquidity(uint256 _minLiquidity) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        minLiquidity = _minLiquidity;
-    }
-
-    /**
-     *
-     * @param poolId the PoolId of the Uniswap V4 pool
-     * @param tickLower the lower tick of the position
-     * @param tickUpper the upper tick of the position
-     * @param liquidity the liquidity of the position
-     * @return amount0 The amount of token0 that would be received for the given liquidity
-     * @return amount1 The amount of token1 that would be received for the given liquidity
-     */
-    function _getAmounts(PoolId poolId, int24 tickLower, int24 tickUpper, uint128 liquidity)
-        internal
-        view
-        returns (uint256 amount0, uint256 amount1)
-    {
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        uint160 sqrtPriceAX96 = TickMath.getSqrtPriceAtTick(tickLower);
-        uint160 sqrtPriceBX96 = TickMath.getSqrtPriceAtTick(tickUpper);
-
-        return (LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceAX96, sqrtPriceBX96, liquidity));
+    function isTokenListed(address token) external view returns (bool) {
+        if (address(listing) == address(0)) return false;
+        return listing.isTokenListed(token);
     }
 
     /**
