@@ -199,7 +199,9 @@ Parameter | Contract | Units / Range | Default | Who can change | Notes
 - **Glossary:**
   - **DCA Token:** ERC20 minted as protocol emissions.
   - **Gauge:** Uniswap v4 hook controlling liquidity event reward flows.
-  - **Keeper:** Highest-deposit participant receiving reduced swap fees.
+  - **Internal User:** The Super DCA Pool contracts that will be allowlisted as internal users, pay 0% fees by default.
+  - **Keeper:** Highest-deposit participant receiving reduced swap fees, pays 0.10% by default.
+  - **External Users:** Anyone who is not an internal user or keeper (i.e. arbitrage/MEV traders) that uses LPs with this hook, pay 0.50% fee by default.
   - **Listing NFP:** Uniswap v4 NFT proving liquidity commitment for partner token.
   - **Reward Index:** Global accumulator scaling minted rewards per staked token.
 
@@ -208,4 +210,106 @@ Parameter | Contract | Units / Range | Default | Who can change | Notes
   - [Staking and reward distribution](./diagrams/stake-reward-distribution.md)
   - [Keeper rotation and dynamic fee enforcement](./diagrams/keeper-dynamic-fee.md)
 
-- **Test matrix:** See `./test-matrix.csv` for mapping between flows, invariants, and tests.
+- **Test matrix:** Generated using `scopelint spec`. Last generated 2025-09-21.
+```
+Contract Specification: SuperDCAListing
+├── constructor
+│   ├──  Sets Configuration Parameters
+│   ├──  Revert When: Invalid Super D C A Token
+│   └──  Revert When: Invalid Admin
+├── setHookAddress
+│   ├──  Sets Hook Address: When Called By Admin
+│   └──  Revert When: Set Hook Address Called By Non Admin
+├── setMinimumLiquidity
+│   ├──  Sets Minimum Liquidity: When Called By Admin
+│   └──  Revert When: Set Minimum Liquidity Called By Non Admin
+├── list
+│   ├──  Emits Token Listed And Registers Token: When: Valid Full Range And Liquidity
+│   ├──  Revert When: Incorrect Hook Address
+│   ├──  Revert When: Nft Id Is Zero
+│   ├──  Revert When: Position Is Not Full Range
+│   ├──  Revert When: Partial Range: Lower Wrong
+│   ├──  Revert When: Partial Range: Upper Wrong
+│   ├──  Revert When: Liquidity Below Minimum
+│   ├──  Revert When: Token Already Listed
+│   ├──  Revert When: Mismatched Pool Key Provided
+│   ├──  Registers Token And Transfers Nfp: When: Dca Token Is Currency0
+│   └──  Registers Token And Transfers Nfp: When: Dca Token Is Currency1
+├── _getAmountsForKey
+└── collectFees
+    ├──  Collect Fees: Increases Recipient Balances: When: Called By Admin
+    ├──  Emits Fees Collected: When: Called By Admin
+    ├──  Revert When: Collect Fees Called By Non Admin
+    ├──  Revert When: Collect Fees With Zero Nfp Id
+    └──  Revert When: Collect Fees With Zero Recipient
+
+Contract Specification: SuperDCAToken
+├── constructor
+│   └──  Sets Name Symbol And Owner And Initial Supply
+└── mint
+    ├──  Mints When Called By Owner
+    └──  Revert If: Caller Is Not Owner
+
+Contract Specification: SuperDCAStaking
+├── onlyGauge
+├── constructor
+│   ├──  Sets Configuration Parameters
+│   ├──  Revert If: Super Dca Token Is Zero
+│   └──  Sets Arbitrary Values
+├── setGauge
+│   ├──  Sets Gauge When Called By Owner
+│   ├──  Revert If: Zero Address
+│   └──  Revert If: Caller Is Not Owner
+├── setMintRate
+│   ├──  Updates Mint Rate When Called By Owner
+│   ├──  Updates Mint Rate When Called By Gauge
+│   └──  Revert If: Caller Is Not Owner Or Gauge
+├── _updateRewardIndex
+├── stake
+│   ├──  Updates State
+│   ├──  Emits Staked Event
+│   └──  Revert If: Zero Amount Stake
+├── unstake
+│   ├──  Updates State
+│   ├──  Emits Unstaked Event
+│   ├──  Revert If: Zero Amount Unstake
+│   ├──  Revert If: Unstake Exceeds Token Bucket
+│   └──  Revert If: Unstake Exceeds User Stake
+├── accrueReward
+│   ├──  Computes Accrued And Updates Index
+│   ├──  Emits Reward Index Updated On Accrual
+│   └──  Revert If: Caller Is Not Gauge
+├── previewPending
+│   ├──  Computes Pending
+│   ├──  Returns Zero When: No Stake
+│   └──  Returns Zero When: No Time Elapsed
+├── getUserStake
+│   ├──  Returns Amount After Stake
+│   └──  Returns Zero When: No Stake
+├── getUserStakedTokens
+│   ├──  Returns Tokens After Stake
+│   └──  Returns Empty When: No Stake
+└── tokenRewardInfos
+    ├──  Returns Zero Struct Initially
+    └──  Returns Updated Struct After Stake
+
+Contract Specification: SuperDCAGauge
+├── constructor
+├── setStaking
+├── setListing
+├── isTokenListed
+├── getHookPermissions
+├── _beforeInitialize
+├── _afterInitialize
+├── _handleDistributionAndSettlement
+├── _beforeAddLiquidity
+├── _beforeRemoveLiquidity
+├── _beforeSwap
+├── becomeKeeper
+├── getKeeperInfo
+├── updateManager
+├── setFee
+├── setInternalAddress
+├── returnSuperDCATokenOwnership
+└── _tryMint
+```
