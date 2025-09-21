@@ -32,14 +32,11 @@ abstract contract DeployGaugeBase is Script {
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5174885917930467233270080641214; // 0.0002344 ETH/DCA
 
-    // Addresses for the PositionManager and ProtocolFees contracts on Optimism mainnet
-    address public immutable POSITION_MANAGER = 0x3C3Ea4B57a46241e54610e5f022E5c45859A1017;
-    address public immutable PROTOCOL_FEES = 0x000000000004444c5dc75cB358380D2e3De08A91; // Placeholder
-
     struct HookConfiguration {
         address poolManager;
         address developerAddress;
         uint256 mintRate;
+        address positionManager;
     }
 
     struct PoolConfiguration {
@@ -87,7 +84,7 @@ abstract contract DeployGaugeBase is Script {
 
         // Mine the salt that will produce a hook address with the correct flags
         bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, IPositionManager(POSITION_MANAGER)
+            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, IPositionManager(hookConfig.positionManager)
         );
 
         (address hookAddress, bytes32 salt) =
@@ -98,7 +95,7 @@ abstract contract DeployGaugeBase is Script {
             IPoolManager(hookConfig.poolManager),
             DCA_TOKEN,
             hookConfig.developerAddress,
-            IPositionManager(POSITION_MANAGER)
+            IPositionManager(hookConfig.positionManager)
         );
 
         require(address(hook) == hookAddress, "Hook address mismatch");
@@ -110,7 +107,7 @@ abstract contract DeployGaugeBase is Script {
         listing = new SuperDCAListing(
             DCA_TOKEN,
             IPoolManager(hookConfig.poolManager),
-            IPositionManager(POSITION_MANAGER),
+            IPositionManager(hookConfig.positionManager),
             hookConfig.developerAddress,
             IHooks(hook)
         );

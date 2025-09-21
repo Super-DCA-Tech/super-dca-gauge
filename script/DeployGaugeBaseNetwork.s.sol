@@ -8,6 +8,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 contract DeployGaugeBaseNetwork is DeployGaugeBase {
     // Hook constants
     address public constant POOL_MANAGER = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
+    address public constant POSITION_MANAGER = 0x3C3Ea4B57a46241e54610e5f022E5c45859A1017;
     address public constant DEVELOPER = 0xC07E21c78d6Ad0917cfCBDe8931325C392958892; // superdca.eth
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
@@ -20,7 +21,12 @@ contract DeployGaugeBaseNetwork is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({poolManager: POOL_MANAGER, developerAddress: DEVELOPER, mintRate: MINT_RATE});
+        return HookConfiguration({
+            poolManager: POOL_MANAGER,
+            developerAddress: DEVELOPER,
+            mintRate: MINT_RATE,
+            positionManager: POSITION_MANAGER
+        });
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {
