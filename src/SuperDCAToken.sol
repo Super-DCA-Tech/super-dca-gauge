@@ -11,11 +11,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 contract SuperDCAToken is ERC20, Ownable, ERC20Permit {
     /// @notice Initializes the Super DCA token with name, symbol and initial supply
     /// @dev Mints initial supply to deployer
-    constructor()
-        ERC20("Super DCA", "DCA")
-        Ownable(msg.sender)
-        ERC20Permit("Super DCA")
-    {
+    constructor() ERC20("Super DCA", "DCA") Ownable(msg.sender) ERC20Permit("Super DCA") {
         _mint(msg.sender, 10000 * 10 ** decimals());
     }
 
