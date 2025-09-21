@@ -3,8 +3,6 @@ pragma solidity ^0.8.22;
 
 import "forge-std/Test.sol";
 import {SuperDCAToken} from "../src/SuperDCAToken.sol";
-import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract SuperDCATokenTest is Test {
     SuperDCAToken token;
