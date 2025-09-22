@@ -16,7 +16,6 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
-import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 import {ISuperDCAListing} from "./interfaces/ISuperDCAListing.sol";
 
 /**
@@ -140,34 +139,44 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /// @param deposit The amount of DCA tokens deposited by the new keeper.
     event KeeperChanged(address indexed oldKeeper, address indexed newKeeper, uint256 deposit);
 
+    /// @notice Emitted when the staking contract address is updated.
+    /// @param oldStaking The address of the previous staking contract.
+    /// @param newStaking The address of the new staking contract.
+    event StakingUpdated(address indexed oldStaking, address indexed newStaking);
+
+    /// @notice Emitted when the listing contract address is updated.
+    /// @param oldListing The address of the previous listing contract.
+    /// @param newListing The address of the new listing contract.
+    event ListingUpdated(address indexed oldListing, address indexed newListing);
+
     // ============ Custom Errors ============
 
     /// @notice Thrown when a pool is not configured with dynamic fees.
-    error NotDynamicFee();
+    error SuperDCAGauge__NotDynamicFee();
 
     /// @notice Thrown when a keeper deposit amount is insufficient to replace current keeper.
-    error InsufficientBalance();
+    error SuperDCAGauge__InsufficientBalance();
 
     /// @notice Thrown when a zero amount is provided where a positive amount is required.
-    error ZeroAmount();
+    error SuperDCAGauge__ZeroAmount();
 
     /// @notice Thrown when an invalid pool fee configuration is detected.
-    error InvalidPoolFee();
+    error SuperDCAGauge__InvalidPoolFee();
 
     /// @notice Thrown when a pool doesn't include the SuperDCA token as one of its currencies.
-    error PoolMustIncludeSuperDCAToken();
+    error SuperDCAGauge__PoolMustIncludeSuperDCAToken();
 
     /// @notice Thrown when the Uniswap token address is not properly set.
-    error UniswapTokenNotSet();
+    error SuperDCAGauge__UniswapTokenNotSet();
 
     /// @notice Thrown when caller is not the expected owner.
-    error NotTheOwner();
+    error SuperDCAGauge__NotTheOwner();
 
     /// @notice Thrown when an invalid address is provided.
-    error InvalidAddress();
+    error SuperDCAGauge__InvalidAddress();
 
     /// @notice Thrown when a zero address is provided where a valid address is required.
-    error ZeroAddress();
+    error SuperDCAGauge__ZeroAddress();
 
     /**
      * @notice Initializes the SuperDCAGauge hook with core addresses and default fee structure.
@@ -203,8 +212,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param stakingAddr The address of the deployed staking contract.
      */
     function setStaking(address stakingAddr) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (stakingAddr == address(0)) revert ZeroAddress();
+        if (stakingAddr == address(0)) revert SuperDCAGauge__ZeroAddress();
+        address oldStaking = address(staking);
         staking = ISuperDCAStaking(stakingAddr);
+        emit StakingUpdated(oldStaking, stakingAddr);
     }
 
     /**
@@ -214,7 +225,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param _listing The address of the listing contract.
      */
     function setListing(address _listing) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldListing = address(listing);
         listing = ISuperDCAListing(_listing);
+        emit ListingUpdated(oldListing, _listing);
     }
 
     /**
@@ -271,7 +284,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         returns (bytes4)
     {
         if (superDCAToken != Currency.unwrap(key.currency0) && superDCAToken != Currency.unwrap(key.currency1)) {
-            revert PoolMustIncludeSuperDCAToken();
+            revert SuperDCAGauge__PoolMustIncludeSuperDCAToken();
         }
         return BaseHook.beforeInitialize.selector;
     }
@@ -289,7 +302,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         override
         returns (bytes4)
     {
-        if (!key.fee.isDynamicFee()) revert NotDynamicFee();
+        if (!key.fee.isDynamicFee()) revert SuperDCAGauge__NotDynamicFee();
         return this.afterInitialize.selector;
     }
 
@@ -436,8 +449,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param amount The amount of DCA tokens to deposit to become keeper
      */
     function becomeKeeper(uint256 amount) external {
-        if (amount == 0) revert ZeroAmount();
-        if (amount <= keeperDeposit) revert InsufficientBalance();
+        if (amount == 0) revert SuperDCAGauge__ZeroAmount();
+        if (amount <= keeperDeposit) revert SuperDCAGauge__InsufficientBalance();
 
         address oldKeeper = keeper;
         uint256 oldDeposit = keeperDeposit;
@@ -508,7 +521,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param _isInternal True to mark as internal, false to unmark.
      */
     function setInternalAddress(address _user, bool _isInternal) external onlyRole(MANAGER_ROLE) {
-        if (_user == address(0)) revert ZeroAddress();
+        if (_user == address(0)) revert SuperDCAGauge__ZeroAddress();
         isInternalAddress[_user] = _isInternal;
         emit InternalAddressUpdated(_user, _isInternal);
     }

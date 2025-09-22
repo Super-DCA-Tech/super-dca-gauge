@@ -11,7 +11,6 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "lib/v4-core/test/utils/LiquidityAmounts.sol";
@@ -49,7 +48,6 @@ import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
  */
 contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
     using PoolIdLibrary for PoolKey;
-    using LPFeeLibrary for uint24;
     using StateLibrary for IPoolManager;
 
     // ============ Immutable Configuration ============
@@ -117,28 +115,28 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
     // ============ Custom Errors ============
 
     /// @notice Thrown when an NFT ID is zero or when required addresses are not properly set.
-    error UniswapTokenNotSet();
+    error SuperDCAListing__UniswapTokenNotSet();
 
     /// @notice Thrown when the pool's hook address doesn't match the required gauge hook.
-    error IncorrectHookAddress();
+    error SuperDCAListing__IncorrectHookAddress();
 
     /// @notice Thrown when the SuperDCA token liquidity is below the minimum requirement.
-    error LowLiquidity();
+    error SuperDCAListing__LowLiquidity();
 
     /// @notice Thrown when the NFT position is not full-range for the pool's tick spacing.
-    error NotFullRangePosition();
+    error SuperDCAListing__NotFullRangePosition();
 
     /// @notice Thrown when attempting to list a token that has already been listed.
-    error TokenAlreadyListed();
+    error SuperDCAListing__TokenAlreadyListed();
 
     /// @notice Thrown when a zero address is provided where a valid address is required.
-    error ZeroAddress();
+    error SuperDCAListing__ZeroAddress();
 
     /// @notice Thrown when an invalid address is provided for operations requiring valid addresses.
-    error InvalidAddress();
+    error SuperDCAListing__InvalidAddress();
 
     /// @notice Thrown when the provided pool key doesn't match the NFT position's actual key.
-    error MismatchedPoolKey();
+    error SuperDCAListing__MismatchedPoolKey();
 
     /**
      * @notice Initializes the SuperDCAListing contract with core addresses and configuration.
@@ -157,7 +155,7 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         address _admin,
         IHooks _expectedHooks
     ) Ownable(_admin) {
-        if (_superDCAToken == address(0)) revert ZeroAddress();
+        if (_superDCAToken == address(0)) revert SuperDCAListing__ZeroAddress();
         SUPER_DCA_TOKEN = _superDCAToken;
         POOL_MANAGER = _poolManager;
         POSITION_MANAGER_V4 = _positionManagerV4;
@@ -198,7 +196,7 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
      */
     function list(uint256 nftId, PoolKey calldata providedKey) external override {
         // Verify NFT ID is non-zero
-        if (nftId == 0) revert UniswapTokenNotSet();
+        if (nftId == 0) revert SuperDCAListing__UniswapTokenNotSet();
 
         // Retrieve actual pool key from position manager and validate it matches
         // the caller's provided key to prevent manipulation or misconfiguration
@@ -208,12 +206,12 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
                 || Currency.unwrap(key.currency1) != Currency.unwrap(providedKey.currency1) || key.fee != providedKey.fee
                 || key.tickSpacing != providedKey.tickSpacing || address(key.hooks) != address(providedKey.hooks)
         ) {
-            revert MismatchedPoolKey();
+            revert SuperDCAListing__MismatchedPoolKey();
         }
 
         // Confirm pool uses the required hook address
         // This ensures proper integration with the DCA system
-        if (address(key.hooks) != address(expectedHooks)) revert IncorrectHookAddress();
+        if (address(key.hooks) != address(expectedHooks)) revert SuperDCAListing__IncorrectHookAddress();
 
         // Ensure position is full-range (min to max usable ticks)
         // This prevents gaming with partial liquidity ranges
@@ -226,7 +224,7 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
                 _tickLower != TickMath.minUsableTick(key.tickSpacing)
                     || _tickUpper != TickMath.maxUsableTick(key.tickSpacing)
             ) {
-                revert NotFullRangePosition();
+                revert SuperDCAListing__NotFullRangePosition();
             }
 
             // Calculate token amounts from the position's liquidity
@@ -245,10 +243,10 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
             }
 
             // Check that the non-DCA token isn't already listed
-            if (isTokenListed[listedToken]) revert TokenAlreadyListed();
+            if (isTokenListed[listedToken]) revert SuperDCAListing__TokenAlreadyListed();
 
             // Validate SuperDCA token liquidity meets minimum requirement
-            if (dcaAmount < minLiquidity) revert LowLiquidity();
+            if (dcaAmount < minLiquidity) revert SuperDCAListing__LowLiquidity();
 
             // Update listing state
             isTokenListed[listedToken] = true;
@@ -295,8 +293,8 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         _checkOwner();
 
         // Validate the NFT ID and recipient address
-        if (nfpId == 0) revert UniswapTokenNotSet();
-        if (recipient == address(0)) revert InvalidAddress();
+        if (nfpId == 0) revert SuperDCAListing__UniswapTokenNotSet();
+        if (recipient == address(0)) revert SuperDCAListing__InvalidAddress();
 
         // Retrieve the position's pool information
         (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nfpId);

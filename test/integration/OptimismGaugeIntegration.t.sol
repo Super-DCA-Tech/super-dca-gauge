@@ -165,7 +165,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         vm.startPrank(keeper2);
         IERC20(DCA_TOKEN).approve(address(gauge), 1000e18);
 
-        vm.expectRevert(abi.encodeWithSignature("InsufficientBalance()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAGauge__InsufficientBalance()"));
         gauge.becomeKeeper(1000e18);
         vm.stopPrank();
     }
@@ -219,7 +219,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
     /// @notice Test internal address setting fails with zero address
     function testFork_SetInternalAddress_ZeroAddress() public {
         // ---- Act & Assert ----
-        vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAGauge__ZeroAddress()"));
         gauge.setInternalAddress(address(0), true);
     }
 

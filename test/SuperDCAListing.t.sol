@@ -223,7 +223,7 @@ contract Constructor is SuperDCAListingTest {
     }
 
     function test_RevertWhen_InvalidSuperDCAToken() public {
-        vm.expectRevert(SuperDCAListing.ZeroAddress.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__ZeroAddress.selector);
         new SuperDCAListing(address(0), manager, positionManagerV4, developer, IHooks(address(0)));
     }
 
@@ -342,12 +342,12 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintFullRange(wrongHookKey, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
 
-        vm.expectRevert(SuperDCAListing.IncorrectHookAddress.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__IncorrectHookAddress.selector);
         listing.list(nfpId, wrongHookKey);
     }
 
     function test_RevertWhen_NftIdIsZero() public {
-        vm.expectRevert(SuperDCAListing.UniswapTokenNotSet.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__UniswapTokenNotSet.selector);
         listing.list(0, key);
     }
 
@@ -356,7 +356,7 @@ contract List is SuperDCAListingTest {
         int24 maxTick = TickMath.maxUsableTick(key.tickSpacing);
         uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
 
@@ -365,7 +365,7 @@ contract List is SuperDCAListingTest {
         int24 maxTick = TickMath.maxUsableTick(key.tickSpacing);
         uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
 
@@ -374,7 +374,7 @@ contract List is SuperDCAListingTest {
         int24 maxTick = TickMath.maxUsableTick(key.tickSpacing);
         uint256 nfpId = _mintNarrow(key, minTick, maxTick - key.tickSpacing, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        vm.expectRevert(SuperDCAListing.NotFullRangePosition.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
         listing.list(nfpId, key);
     }
 
@@ -382,7 +382,7 @@ contract List is SuperDCAListingTest {
         // Mint tiny liquidity
         uint256 nfpId = _mintFullRange(key, 1e9, 1e9, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        vm.expectRevert(SuperDCAListing.LowLiquidity.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__LowLiquidity.selector);
         listing.list(nfpId, key);
     }
 
@@ -393,7 +393,7 @@ contract List is SuperDCAListingTest {
 
         uint256 id2 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), id2);
-        vm.expectRevert(SuperDCAListing.TokenAlreadyListed.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__TokenAlreadyListed.selector);
         listing.list(id2, key);
     }
 
@@ -402,7 +402,7 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         PoolKey memory provided = key;
         provided.tickSpacing = 30;
-        vm.expectRevert(SuperDCAListing.MismatchedPoolKey.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__MismatchedPoolKey.selector);
         listing.list(nfpId, provided);
     }
 
@@ -524,13 +524,13 @@ contract CollectFees is SuperDCAListingTest {
 
     function test_RevertWhen_CollectFeesWithZeroNfpId() public {
         vm.prank(developer);
-        vm.expectRevert(SuperDCAListing.UniswapTokenNotSet.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__UniswapTokenNotSet.selector);
         listing.collectFees(0, address(0x1234));
     }
 
     function test_RevertWhen_CollectFeesWithZeroRecipient() public {
         vm.prank(developer);
-        vm.expectRevert(SuperDCAListing.InvalidAddress.selector);
+        vm.expectRevert(SuperDCAListing.SuperDCAListing__InvalidAddress.selector);
         listing.collectFees(1, address(0));
     }
 }
