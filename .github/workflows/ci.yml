@@ -34,7 +34,8 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Run tests
-        run: forge test
+        # Integration tests only work when the DEPLOYER_PRIVATE_KEY is set to the DCA token owner
+        run: forge test --no-match-test "testFork"
 
   coverage:
     runs-on: ubuntu-latest
@@ -48,7 +49,8 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Run coverage
-        run: forge coverage --report summary --report lcov
+        # Integration tests only work when the DEPLOYER_PRIVATE_KEY is set to the DCA token owner
+        run: forge coverage --no-match-test "testFork" --report summary --report lcov
 
       # To ignore coverage for certain directories modify the paths in this step as needed. The
       # below default ignores coverage results for the test and script directories. Alternatively,
