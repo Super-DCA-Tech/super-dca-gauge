@@ -125,6 +125,7 @@ contract OptimismIntegrationBase is Test {
     IPermit2 public permit2;
 
     // Test addresses - using the same developer address as deployment script
+    address deployer; // Set when deployment runs.
     address user1 = makeAddr("user1");
     address user2 = makeAddr("user2");
 
@@ -159,6 +160,9 @@ contract OptimismIntegrationBase is Test {
         // Run the deployment script to deploy all contracts
         DeployGaugeBaseOptimism.DeployedContracts memory deployed = deployScript.run();
 
+        // Set the deployer address
+        deployer = deployScript.deployerAddress();
+
         // Get references to the deployed contracts
         gauge = deployed.gauge;
         listing = deployed.listing;
@@ -179,7 +183,7 @@ contract OptimismIntegrationBase is Test {
 
         // Impersonate the deployer to transfer ownership of the staking and listing contracts
         // to this test contract
-        vm.startPrank(deployScript.deployerAddress());
+        vm.startPrank(deployer);
 
         // Transfer staking ownership to test contract
         staking.transferOwnership(address(this));

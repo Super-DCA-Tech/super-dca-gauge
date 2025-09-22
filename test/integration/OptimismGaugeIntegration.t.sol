@@ -325,7 +325,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
                 IAccessControl.AccessControlUnauthorizedAccount.selector, unauthorizedUser, gauge.DEFAULT_ADMIN_ROLE()
             )
         );
-        gauge.updateManager(DEVELOPER, address(0x1234));
+        gauge.updateManager(deployer, address(0x1234));
         vm.stopPrank();
     }
 
@@ -367,7 +367,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         address newManager = makeAddr("newManager");
 
         // ---- Act ----
-        gauge.updateManager(DEVELOPER, newManager);
+        gauge.updateManager(deployer, newManager);
 
         // ---- Assert ----
         // New manager should be able to call manager functions
@@ -376,10 +376,10 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         assertEq(gauge.internalFee(), 100, "New manager should be able to set fees");
 
         // Old manager should not be able to call manager functions
-        vm.startPrank(DEVELOPER);
+        vm.startPrank(deployer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, DEVELOPER, gauge.MANAGER_ROLE()
+                IAccessControl.AccessControlUnauthorizedAccount.selector, deployer, gauge.MANAGER_ROLE()
             )
         );
         gauge.setFee(SuperDCAGauge.FeeType(0), 200);
@@ -426,7 +426,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         uint256 pendingAfter = staking.previewPending(WETH);
 
         // Check developer balance increased (they should receive 50% of rewards if minting succeeded)
-        uint256 developerBalance = IERC20(DCA_TOKEN).balanceOf(DEVELOPER);
+        uint256 developerBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
 
         // In a successful scenario, pending rewards should be reduced and developer should receive tokens
         // The exact amounts depend on minting success and pool liquidity
