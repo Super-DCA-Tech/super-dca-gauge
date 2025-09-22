@@ -32,15 +32,10 @@ abstract contract DeployGaugeBase is Script {
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5174885917930467233270080641214; // 0.0002344 ETH/DCA
 
-    // Addresses for the PositionManager and ProtocolFees contracts
-    // These addresses are placeholders and should be replaced with actual deployed contract addresses
-    address public immutable POSITION_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
-    address public immutable PROTOCOL_FEES = 0x000000000004444c5dc75cB358380D2e3De08A91;
-
     struct HookConfiguration {
         address poolManager;
-        address developerAddress;
         uint256 mintRate;
+        address positionManager;
     }
 
     struct PoolConfiguration {
@@ -50,22 +45,36 @@ abstract contract DeployGaugeBase is Script {
         address token1;
     }
 
+    struct DeployedContracts {
+        SuperDCAGauge gauge;
+        SuperDCAListing listing;
+        SuperDCAStaking staking;
+    }
+
     uint256 public deployerPrivateKey;
+    address public deployerAddress;
     SuperDCAGauge public hook;
     SuperDCAListing public listing;
+    SuperDCAStaking public staking;
+
+    bool showDeployLogs;
 
     function setUp() public virtual {
         deployerPrivateKey = vm.envOr(
             "DEPLOYER_PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80)
         );
+        showDeployLogs = vm.envOr("SHOW_DEPLOY_LOGS", true);
     }
 
     function getHookConfiguration() public virtual returns (HookConfiguration memory);
     function getPoolConfiguration() public virtual returns (PoolConfiguration memory);
 
-    function run() public virtual returns (SuperDCAGauge) {
+    function run() public virtual returns (DeployedContracts memory) {
         HookConfiguration memory hookConfig = getHookConfiguration();
         PoolConfiguration memory poolConfig = getPoolConfiguration();
+
+        // Get deployer address from private key
+        deployerAddress = vm.addr(deployerPrivateKey);
 
         // Deploy and wire contracts with the deployer key (must be the developer/admin)
         vm.startBroadcast(deployerPrivateKey);
@@ -77,9 +86,8 @@ abstract contract DeployGaugeBase is Script {
         );
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, IPositionManager(POSITION_MANAGER)
-        );
+        bytes memory constructorArgs =
+            abi.encode(hookConfig.poolManager, DCA_TOKEN, deployerAddress, IPositionManager(hookConfig.positionManager));
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
@@ -88,27 +96,27 @@ abstract contract DeployGaugeBase is Script {
         hook = new SuperDCAGauge{salt: salt}(
             IPoolManager(hookConfig.poolManager),
             DCA_TOKEN,
-            hookConfig.developerAddress,
-            IPositionManager(POSITION_MANAGER)
+            deployerAddress,
+            IPositionManager(hookConfig.positionManager)
         );
 
         require(address(hook) == hookAddress, "Hook address mismatch");
 
-        console2.log("Deployed Hook:", address(hook));
+        _log("Deployed Hook:", address(hook));
 
-        // Deploy staking (owned by developer) and listing (admin = developer, expected hook = deployed hook)
-        SuperDCAStaking staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, hookConfig.developerAddress);
+        // Deploy staking (owned by deployer) and listing (admin = deployer, expected hook = deployed hook)
+        staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, deployerAddress);
         listing = new SuperDCAListing(
             DCA_TOKEN,
             IPoolManager(hookConfig.poolManager),
-            IPositionManager(POSITION_MANAGER),
-            hookConfig.developerAddress,
+            IPositionManager(hookConfig.positionManager),
+            deployerAddress,
             IHooks(hook)
         );
 
-        // Ownable: SuperDCAStaking.setGauge (owner = developer)
+        // Ownable: SuperDCAStaking.setGauge (owner = deployer)
         staking.setGauge(address(hook));
-        // AccessControl: SuperDCAGauge.setStaking and setListing (DEFAULT_ADMIN_ROLE = developer)
+        // AccessControl: SuperDCAGauge.setStaking and setListing (DEFAULT_ADMIN_ROLE = deployer)
         hook.setStaking(address(staking));
         hook.setListing(address(listing));
 
@@ -132,30 +140,23 @@ abstract contract DeployGaugeBase is Script {
         // Initialize both pools
         IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
         IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
-        console2.log("Initialized USDC/DCA and ETH/DCA Pools");
+        _log("Initialized USDC/DCA and ETH/DCA Pools");
 
-        console2.log("DCA Token:", DCA_TOKEN);
-        console2.log("Hook:", address(hook));
-        console2.log("Listing:", address(listing));
-        console2.log("Deployer:", vm.addr(deployerPrivateKey));
-
-        // Transfer ownership of the Super DCA token to the hook so it can mint tokens
-        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
-        console2.log("Transferred Super DCA token ownership to hook");
-
-        // Recover the Super DCA token ownership (for sanity)
-        hook.returnSuperDCATokenOwnership();
-        console2.log("Recovered Super DCA token ownership");
-        if (ISuperchainERC20(DCA_TOKEN).owner() != vm.addr(deployerPrivateKey)) {
-            revert("Hook should own the token");
-        }
-
-        // Transfer ownership of the Super DCA token to the hook
-        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
-        console2.log("Transferred Super DCA token ownership to hook");
+        _log("DCA Token:", DCA_TOKEN);
+        _log("Hook:", address(hook));
+        _log("Listing:", address(listing));
+        _log("Deployer:", deployerAddress);
 
         vm.stopBroadcast();
 
-        return hook;
+        return DeployedContracts({gauge: hook, listing: listing, staking: staking});
+    }
+
+    function _log(string memory message) internal view {
+        if (showDeployLogs) console2.log(message);
+    }
+
+    function _log(string memory message, address addr) internal view {
+        if (showDeployLogs) console2.log(message, addr);
     }
 }
