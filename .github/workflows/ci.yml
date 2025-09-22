@@ -35,7 +35,7 @@ jobs:
 
       - name: Run tests
         # Integration tests only work when the DEPLOYER_PRIVATE_KEY is set to the DCA token owner
-        run: forge test --no-match-test "testFork"
+        run: forge test
 
   coverage:
     runs-on: ubuntu-latest
