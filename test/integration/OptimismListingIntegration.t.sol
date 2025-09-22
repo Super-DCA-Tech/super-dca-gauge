@@ -52,7 +52,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         // ---- Act & Assert ----
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
 
-        vm.expectRevert(abi.encodeWithSignature("LowLiquidity()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__LowLiquidity()"));
         listing.list(nftId, key);
     }
 
@@ -77,7 +77,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(wrongKey, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         // ---- Act & Assert ----
-        vm.expectRevert(abi.encodeWithSignature("IncorrectHookAddress()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__IncorrectHookAddress()"));
         listing.list(nftId, wrongKey); // Will fail during validation
     }
 
@@ -99,7 +99,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         // ---- Act & Assert ----
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId2);
 
-        vm.expectRevert(abi.encodeWithSignature("TokenAlreadyListed()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__TokenAlreadyListed()"));
         listing.list(nftId2, key);
     }
 
@@ -206,7 +206,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         address feeRecipient = makeAddr("feeRecipient");
 
         // ---- Act & Assert ----
-        vm.expectRevert(abi.encodeWithSignature("UniswapTokenNotSet()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__UniswapTokenNotSet()"));
         listing.collectFees(nftId, feeRecipient);
     }
 
@@ -217,7 +217,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         address feeRecipient = address(0);
 
         // ---- Act & Assert ----
-        vm.expectRevert(abi.encodeWithSignature("InvalidAddress()"));
+        vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__InvalidAddress()"));
         listing.collectFees(nftId, feeRecipient);
     }
 

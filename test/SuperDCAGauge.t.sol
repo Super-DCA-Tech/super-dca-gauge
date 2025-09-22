@@ -775,7 +775,7 @@ contract SetInternalAddressTest is AccessControlTest {
     }
 
     function test_RevertWhen_SettingZeroAddressAsInternal() public {
-        vm.expectRevert(SuperDCAGauge.ZeroAddress.selector);
+        vm.expectRevert(SuperDCAGauge.SuperDCAGauge__ZeroAddress.selector);
         vm.prank(managerUser);
         hook.setInternalAddress(address(0), true);
     }
@@ -838,7 +838,7 @@ contract SetStakingTest is AccessControlTest {
     }
 
     function test_RevertWhen_SettingStakingToZeroAddress() public {
-        vm.expectRevert(SuperDCAGauge.ZeroAddress.selector);
+        vm.expectRevert(SuperDCAGauge.SuperDCAGauge__ZeroAddress.selector);
         vm.prank(developer);
         hook.setStaking(address(0));
     }
@@ -941,7 +941,7 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
 
     function test_becomeKeeper_revert_zeroAmount() public {
         vm.startPrank(keeper1);
-        vm.expectRevert(SuperDCAGauge.ZeroAmount.selector);
+        vm.expectRevert(SuperDCAGauge.SuperDCAGauge__ZeroAmount.selector);
         hook.becomeKeeper(0);
         vm.stopPrank();
     }
@@ -957,7 +957,7 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
 
         vm.startPrank(keeper2);
         dcaToken.approve(address(hook), insufficientDeposit);
-        vm.expectRevert(SuperDCAGauge.InsufficientBalance.selector);
+        vm.expectRevert(SuperDCAGauge.SuperDCAGauge__InsufficientBalance.selector);
         hook.becomeKeeper(insufficientDeposit);
         vm.stopPrank();
     }
@@ -972,7 +972,7 @@ contract BecomeKeeperTest is SuperDCAGaugeTest {
 
         vm.startPrank(keeper2);
         dcaToken.approve(address(hook), deposit);
-        vm.expectRevert(SuperDCAGauge.InsufficientBalance.selector);
+        vm.expectRevert(SuperDCAGauge.SuperDCAGauge__InsufficientBalance.selector);
         hook.becomeKeeper(deposit);
         vm.stopPrank();
     }
