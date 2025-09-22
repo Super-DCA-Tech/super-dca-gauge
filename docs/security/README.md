@@ -161,7 +161,7 @@ The DCA token is already deployed; its code is included in this repository for r
   - Listing constructor wires Uniswap managers, expected hook; owner can update hook later. Pool-level initialization occurs via Uniswap `initialize` using hook flags.
   - DCA Token ownership is transferred to the gauge contract. 
 ### Migration & upgrade safety checks
-Manual process—revoke gauge role or transfer token ownership before deploying replacements; ensure new contracts respect same interfaces before switching addresses. In practice, LPs will have to withdraw and move their liquidity if a new staking or gauge contract is deployed. Listed NFPs will remain forever locked in the listing contract as part of the protocols permenantly locked liquidity. Fees on these postions will be collectable by the listing owner.
+Manual process—revoke gauge role or transfer token ownership before deploying replacements; ensure new contracts respect same interfaces before switching addresses. In practice, LPs will have to withdraw and move their liquidity if a new staking or gauge contract is deployed. Listed NFPs will remain forever locked in the listing contract as part of the protocol's permanently locked liquidity. Fees on these positions will be collectable by the listing owner.
 
 ## Parameters & Admin Procedures
 ### Config surface
