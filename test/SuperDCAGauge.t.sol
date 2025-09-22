@@ -805,6 +805,35 @@ contract ReturnSuperDCATokenOwnershipTest is AccessControlTest {
     }
 }
 
+contract SetStakingTest is AccessControlTest {
+    function test_Should_AllowAdminToSetStaking() public {
+        address newStaking = makeAddr("newStaking");
+
+        vm.prank(developer);
+        hook.setStaking(newStaking);
+
+        assertEq(address(hook.staking()), newStaking, "Staking address should be updated");
+    }
+
+    function test_RevertWhen_NonAdminSetsStaking() public {
+        address newStaking = makeAddr("newStaking");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(nonManagerUser);
+        hook.setStaking(newStaking);
+    }
+
+    function test_RevertWhen_SettingStakingToZeroAddress() public {
+        vm.expectRevert(SuperDCAGauge.ZeroAddress.selector);
+        vm.prank(developer);
+        hook.setStaking(address(0));
+    }
+}
+
 contract BecomeKeeperTest is SuperDCAGaugeTest {
     address keeper1 = address(0x1111);
     address keeper2 = address(0x2222);
