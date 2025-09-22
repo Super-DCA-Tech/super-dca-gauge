@@ -11,7 +11,9 @@ out/
 /broadcast/**/*.json
 
 # Docs
-docs/
+docs/*
+!docs/security/
+!docs/security/**
 
 # Dotenv file
 .env

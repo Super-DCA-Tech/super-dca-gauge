@@ -22,72 +22,134 @@ import {PositionInfo} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.s
 import {ISuperDCAListing} from "./interfaces/ISuperDCAListing.sol";
 import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 
-/// @title SuperDCAListing
-/// @notice Manages listing of tokens for Super DCA by taking custody of full-range Uniswap v4 NFP positions
-///         that pair `SUPER_DCA_TOKEN` with the listed token and meet minimum liquidity requirements.
-/// @dev Enforces that the position's hook matches the configured gauge hook and that the position is full-range.
-///      Uses Ownable2Step; the owner can configure the hook, minimum liquidity, and collect fees.
+/**
+ * @title SuperDCAListing
+ * @notice Manages token listing for Super DCA by validating and taking custody of Uniswap V4 NFT positions.
+ * @dev This contract implements a token listing system where tokens become eligible for DCA operations
+ *      by depositing qualifying Uniswap V4 NFT positions. The contract enforces strict validation:
+ *
+ *      Listing Requirements:
+ *      - Position must be full-range (min to max usable ticks)
+ *      - Pool must pair the target token with SUPER_DCA_TOKEN
+ *      - Pool must use the configured gauge hook (SuperDCAGauge)
+ *      - SuperDCA token liquidity must meet minimum threshold
+ *      - Token cannot already be listed
+ *
+ *      Architecture:
+ *      - Uses Ownable2Step for secure ownership transfers
+ *      - Integrates with Uniswap V4 PoolManager and PositionManager
+ *      - Validates pool configuration and position parameters
+ *      - Enables fee collection for deposited positions
+ *
+ *      Security Features:
+ *      - Pool key validation prevents manipulation
+ *      - Hook address enforcement ensures gauge integration
+ *      - Full-range requirement prevents partial liquidity gaming
+ *      - Minimum liquidity threshold ensures meaningful listings
+ */
 contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
     using PoolIdLibrary for PoolKey;
     using LPFeeLibrary for uint24;
     using StateLibrary for IPoolManager;
 
-    // External dependencies
-    /// @notice The Uniswap v4 `IPoolManager` used for pool state queries.
+    // ============ Immutable Configuration ============
+
+    /// @notice The Uniswap V4 pool manager contract for pool state queries and validation.
+    /// @dev Used to retrieve pool information and validate pool states.
     IPoolManager public immutable POOL_MANAGER;
-    /// @notice The Uniswap v4 `IPositionManager` used to query and manage NFP positions.
+
+    /// @notice The Uniswap V4 position manager contract for NFT position operations.
+    /// @dev Used to query position details, transfer custody, and collect fees.
     IPositionManager public immutable POSITION_MANAGER_V4;
 
-    // Configuration
-    /// @notice The address of the Super DCA ERC20 token that must be one side of any listed pool.
+    /// @notice The SuperDCA token that must be paired in all listed pools.
+    /// @dev Every listed token must have a pool that pairs with this token.
     address public immutable SUPER_DCA_TOKEN;
-    /// @notice The expected Uniswap v4 hook (gauge) address; must match the hook embedded in a listed pool's `PoolKey`.
-    IHooks public expectedHooks; // Gauge hook address that must match key.hooks
 
-    // Listing state
-    /// @notice The minimum amount of Super DCA token liquidity required in the full-range position to list the token.
-    uint256 public minLiquidity = 1000 * 10 ** 18; // Minimum DCA liquidity required
-    /// @notice Tracks whether a token has been listed.
+    // ============ Mutable Configuration ============
+
+    /// @notice The required hook address that must be present in listed pools.
+    /// @dev Typically set to the SuperDCAGauge address to ensure proper integration.
+    IHooks public expectedHooks;
+
+    /// @notice The minimum SuperDCA token liquidity required for listing eligibility.
+    /// @dev Prevents spam listings with insignificant liquidity amounts.
+    uint256 public minLiquidity = 1000 * 10 ** 18;
+
+    // ============ Listing State ============
+
+    /// @notice Tracks which tokens have been successfully listed for DCA operations.
+    /// @dev Maps token address to listing status (true = listed, false = not listed).
     mapping(address token => bool listed) public override isTokenListed;
-    /// @notice Maps a listed NFP tokenId to the corresponding listed token address.
+
+    /// @notice Maps NFT position IDs to their corresponding listed token addresses.
+    /// @dev Used to track which positions are held by this contract for each token.
     mapping(uint256 nfpId => address token) public override tokenOfNfp;
 
-    // Events
-    /// @notice Emitted when a token is successfully listed by transferring custody of the NFP to this contract.
+    // ============ Events ============
+
+    /// @notice Emitted when a token is successfully listed through NFT position deposit.
+    /// @param token The token address that was listed for DCA operations.
+    /// @param nftId The Uniswap V4 NFT position ID that was deposited.
+    /// @param key The complete pool key for the position (currencies, fee, tickSpacing, hooks).
     event TokenListed(address indexed token, uint256 indexed nftId, PoolKey key);
-    /// @notice Emitted when the minimum required liquidity is updated.
+
+    /// @notice Emitted when the minimum liquidity requirement is updated by the owner.
+    /// @param oldMin The previous minimum liquidity requirement.
+    /// @param newMin The new minimum liquidity requirement.
     event MinimumLiquidityUpdated(uint256 oldMin, uint256 newMin);
-    /// @notice Emitted when the expected hook (gauge) address is updated.
+
+    /// @notice Emitted when the expected hook address is updated by the owner.
+    /// @param oldHook The previous hook address.
+    /// @param newHook The new required hook address for listings.
     event HookAddressSet(address indexed oldHook, address indexed newHook);
-    /// @notice Emitted after fees are collected for a listed position.
+
+    /// @notice Emitted when fees are collected from a listed position.
+    /// @param recipient The address that received the collected fees.
+    /// @param token0 The first token in the pool pair.
+    /// @param token1 The second token in the pool pair.
+    /// @param amount0 The amount of token0 fees collected.
+    /// @param amount1 The amount of token1 fees collected.
     event FeesCollected(
         address indexed recipient, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1
     );
 
-    // Errors
-    /// @notice Thrown when `nftId` is zero or when a required Uniswap token address is not set.
+    // ============ Custom Errors ============
+
+    /// @notice Thrown when an NFT ID is zero or when required addresses are not properly set.
     error UniswapTokenNotSet();
-    /// @notice Thrown when the provided `PoolKey.hooks` does not match the configured `expectedHooks`.
+
+    /// @notice Thrown when the pool's hook address doesn't match the required gauge hook.
     error IncorrectHookAddress();
-    /// @notice Thrown when the detected Super DCA token liquidity does not meet `minLiquidity`.
+
+    /// @notice Thrown when the SuperDCA token liquidity is below the minimum requirement.
     error LowLiquidity();
-    /// @notice Thrown when the NFP does not represent a full-range position for the pool's tick spacing.
+
+    /// @notice Thrown when the NFT position is not full-range for the pool's tick spacing.
     error NotFullRangePosition();
-    /// @notice Thrown when attempting to list a token that is already listed.
+
+    /// @notice Thrown when attempting to list a token that has already been listed.
     error TokenAlreadyListed();
-    /// @notice Thrown when a zero address is provided where a non-zero address is required.
+
+    /// @notice Thrown when a zero address is provided where a valid address is required.
     error ZeroAddress();
-    /// @notice Thrown when an invalid (e.g. zero) address is supplied for operations like fee collection recipient.
+
+    /// @notice Thrown when an invalid address is provided for operations requiring valid addresses.
     error InvalidAddress();
-    /// @notice Thrown when the provided `PoolKey` does not match the actual key derived from the NFP.
+
+    /// @notice Thrown when the provided pool key doesn't match the NFT position's actual key.
     error MismatchedPoolKey();
 
-    /// @notice Initializes the SuperDCAListing contract.
-    /// @param _superDCAToken The address of the Super DCA ERC20 token.
-    /// @param _poolManager The Uniswap v4 `IPoolManager` address.
-    /// @param _positionManagerV4 The Uniswap v4 `IPositionManager` address.
-    /// @param _admin The address that will be granted `DEFAULT_ADMIN_ROLE`.
-    /// @param _expectedHooks The expected hook (gauge) address embedded in valid `PoolKey`s.
+    /**
+     * @notice Initializes the SuperDCAListing contract with core addresses and configuration.
+     * @dev Sets up the contract with immutable addresses and transfers ownership to the admin.
+     *      The expected hooks address can be updated later by the owner.
+     * @param _superDCAToken The address of the SuperDCA ERC20 token that must be in all listed pools.
+     * @param _poolManager The Uniswap V4 pool manager contract address.
+     * @param _positionManagerV4 The Uniswap V4 position manager contract address.
+     * @param _admin The address that will become the owner of this contract.
+     * @param _expectedHooks The initial hook address required for valid pool listings.
+     */
     constructor(
         address _superDCAToken,
         IPoolManager _poolManager,
@@ -102,18 +164,24 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         expectedHooks = _expectedHooks;
     }
 
-    /// @notice Sets the expected Uniswap v4 hook (gauge) address that must match any listed position's `PoolKey.hooks`.
-    /// @dev Callable only by the owner.
-    /// @param _newHook The new hook address to enforce.
+    /**
+     * @notice Updates the required hook address for new token listings.
+     * @dev Only callable by the contract owner. This allows updating the gauge address
+     *      if needed without redeploying the listing contract.
+     * @param _newHook The new hook address that must be present in listed pools.
+     */
     function setHookAddress(IHooks _newHook) external {
         _checkOwner();
         emit HookAddressSet(address(expectedHooks), address(_newHook));
         expectedHooks = _newHook;
     }
 
-    /// @notice Updates the minimum Super DCA liquidity requirement for listing.
-    /// @dev Callable only by the owner.
-    /// @param _minLiquidity The new minimum liquidity threshold.
+    /**
+     * @notice Updates the minimum SuperDCA token liquidity required for token listings.
+     * @dev Only callable by the contract owner. Used to adjust listing requirements
+     *      based on market conditions or policy changes.
+     * @param _minLiquidity The new minimum liquidity threshold in SuperDCA tokens.
+     */
     function setMinimumLiquidity(uint256 _minLiquidity) external override {
         _checkOwner();
         uint256 old = minLiquidity;
@@ -121,21 +189,19 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         emit MinimumLiquidityUpdated(old, _minLiquidity);
     }
 
-    /// @notice Lists a token by validating and taking custody of a full-range Uniswap v4 position NFT.
-    /// @dev Requirements:
-    /// - `nftId != 0`
-    /// - The provided `providedKey` must match the actual `PoolKey` for `nftId`.
-    /// - `key.hooks` must equal `expectedHooks`.
-    /// - The position must be full-range for `key.tickSpacing`.
-    /// - The detected Super DCA token liquidity must be at least `minLiquidity`.
-    /// - The corresponding non-Super DCA token must not already be listed.
-    /// On success, custody of the NFP is transferred to this contract and a `TokenListed` event is emitted.
-    /// @param nftId The Uniswap v4 position tokenId to list.
-    /// @param providedKey The `PoolKey` provided by the caller, which must match the position's actual key.
+    /**
+     * @notice Lists a token for DCA operations by validating and taking custody of a Uniswap V4 NFT position.
+     * @dev On successful validation, transfers NFT custody to this contract and marks
+     *      the token as listed for DCA operations.
+     * @param nftId The Uniswap V4 NFT position ID to use for listing.
+     * @param providedKey The pool key that must match the position's actual configuration.
+     */
     function list(uint256 nftId, PoolKey calldata providedKey) external override {
+        // Verify NFT ID is non-zero
         if (nftId == 0) revert UniswapTokenNotSet();
 
-        // Derive the actual key from the position manager and ensure it matches caller input
+        // Retrieve actual pool key from position manager and validate it matches
+        // the caller's provided key to prevent manipulation or misconfiguration
         (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nftId);
         if (
             Currency.unwrap(key.currency0) != Currency.unwrap(providedKey.currency0)
@@ -145,15 +211,17 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
             revert MismatchedPoolKey();
         }
 
-        // hooks address must match configured hook (the gauge)
-        // also enforces dynamic fee and the DCA token being in the pool
+        // Confirm pool uses the required hook address
+        // This ensures proper integration with the DCA system
         if (address(key.hooks) != address(expectedHooks)) revert IncorrectHookAddress();
 
-        // full-range enforcement via position info
+        // Ensure position is full-range (min to max usable ticks)
+        // This prevents gaming with partial liquidity ranges
         {
             PositionInfo _pi = POSITION_MANAGER_V4.positionInfo(nftId);
             int24 _tickLower = _pi.tickLower();
             int24 _tickUpper = _pi.tickUpper();
+
             if (
                 _tickLower != TickMath.minUsableTick(key.tickSpacing)
                     || _tickUpper != TickMath.maxUsableTick(key.tickSpacing)
@@ -161,10 +229,11 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
                 revert NotFullRangePosition();
             }
 
-            // liquidity amounts
+            // Calculate token amounts from the position's liquidity
             uint128 _liquidity = POSITION_MANAGER_V4.getPositionLiquidity(nftId);
             (uint256 amount0, uint256 amount1) = _getAmountsForKey(key, _tickLower, _tickUpper, _liquidity);
 
+            // Determine which token is being listed and validate SuperDCA liquidity amount
             address listedToken;
             uint256 dcaAmount;
             if (Currency.unwrap(key.currency0) == SUPER_DCA_TOKEN) {
@@ -175,27 +244,35 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
                 dcaAmount = amount1;
             }
 
-            if (dcaAmount < minLiquidity) revert LowLiquidity();
+            // Check that the non-DCA token isn't already listed
             if (isTokenListed[listedToken]) revert TokenAlreadyListed();
 
-            // mark listed and map NFP
+            // Validate SuperDCA token liquidity meets minimum requirement
+            if (dcaAmount < minLiquidity) revert LowLiquidity();
+
+            // Update listing state
             isTokenListed[listedToken] = true;
             tokenOfNfp[nftId] = listedToken;
         }
 
-        // take custody of the NFP
+        // Transfer NFT custody to this contract
         IERC721(address(POSITION_MANAGER_V4)).transferFrom(msg.sender, address(this), nftId);
         emit TokenListed(tokenOfNfp[nftId], nftId, key);
     }
 
-    /// @notice Computes token amounts represented by a given full-range liquidity position.
-    /// @dev Uses the current pool price from `POOL_MANAGER.getSlot0` and standard Uniswap v4 helpers.
-    /// @param key The pool key.
-    /// @param tickLower The lower tick of the position (expected min usable tick).
-    /// @param tickUpper The upper tick of the position (expected max usable tick).
-    /// @param liquidity The position liquidity.
-    /// @return amount0 The calculated amount of token0 represented by the position.
-    /// @return amount1 The calculated amount of token1 represented by the position.
+    /**
+     * @notice Calculates token amounts for a liquidity position based on current pool price.
+     * @dev Uses Uniswap V4's standard math libraries to convert liquidity to token amounts.
+     *      The calculation depends on the current pool price (sqrtPriceX96) and the
+     *      position's tick range. For full-range positions, this gives the exact
+     *      token amounts that would be withdrawn if the position were closed.
+     * @param key The pool key containing currency and fee information.
+     * @param tickLower The lower tick of the position (should be min usable tick).
+     * @param tickUpper The upper tick of the position (should be max usable tick).
+     * @param liquidity The position's liquidity amount.
+     * @return amount0 The calculated amount of currency0 in the position.
+     * @return amount1 The calculated amount of currency1 in the position.
+     */
     function _getAmountsForKey(PoolKey memory key, int24 tickLower, int24 tickUpper, uint128 liquidity)
         internal
         view
@@ -207,33 +284,44 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         return (LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceAX96, sqrtPriceBX96, liquidity));
     }
 
-    /// @notice Collects fees for a listed position and sends them to `recipient`.
-    /// @dev Callable only by the owner.
-    /// Reverts if `nfpId` is zero or `recipient` is the zero address.
-    /// Emits `FeesCollected` with the deltas of the recipient's token balances.
-    /// @param nfpId The Uniswap v4 position tokenId whose fees to collect.
-    /// @param recipient The address to receive the collected fees.
+    /**
+     * @notice Collects accumulated fees from a listed NFT position and transfers them to a recipient.
+     * @dev Only callable by the contract owner. Uses Uniswap V4's DECREASE_LIQUIDITY and TAKE_PAIR
+     *      actions with zero liquidity to collect fees without removing position liquidity.
+     * @param nfpId The NFT position ID to collect fees from.
+     * @param recipient The address that will receive the collected fees.
+     */
     function collectFees(uint256 nfpId, address recipient) external override {
         _checkOwner();
+
+        // Validate the NFT ID and recipient address
         if (nfpId == 0) revert UniswapTokenNotSet();
         if (recipient == address(0)) revert InvalidAddress();
 
+        // Retrieve the position's pool information
         (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nfpId);
         Currency token0 = key.currency0;
         Currency token1 = key.currency1;
 
+        // Record token balances before fee collection
         uint256 balance0Before = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
         uint256 balance1Before = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
 
+        // Prepare actions: DECREASE_LIQUIDITY (with 0 liquidity) + TAKE_PAIR
+        // This collects fees without removing any actual liquidity
         bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
 
         bytes[] memory params = new bytes[](2);
+        // DECREASE_LIQUIDITY params: (tokenId, liquidity128Delta, amount0Min, amount1Min, hookData)
         params[0] = abi.encode(nfpId, uint256(0), uint128(0), uint128(0), bytes(""));
+        // TAKE_PAIR params: (currency0, currency1, recipient)
         params[1] = abi.encode(token0, token1, recipient);
 
+        // Execute fee collection with short deadline
         uint256 deadline = block.timestamp + 60;
         POSITION_MANAGER_V4.modifyLiquidities(abi.encode(actions, params), deadline);
 
+        // Calculate and emit the collected amounts
         uint256 balance0After = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
         uint256 balance1After = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
 
