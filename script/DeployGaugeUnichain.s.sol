@@ -9,7 +9,6 @@ contract DeployGaugeUnichain is DeployGaugeBase {
     // Hook constants
     address public constant POOL_MANAGER = 0x1F98400000000000000000000000000000000004;
     address public constant POSITION_MANAGER = 0x4529A01c7A0410167c5740C487A8DE60232617bf;
-    address public constant DEVELOPER = 0xC07E21c78d6Ad0917cfCBDe8931325C392958892; // superdca.eth
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
     // Pool constants
@@ -21,12 +20,7 @@ contract DeployGaugeUnichain is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({
-            poolManager: POOL_MANAGER,
-            developerAddress: DEVELOPER,
-            mintRate: MINT_RATE,
-            positionManager: POSITION_MANAGER
-        });
+        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER});
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {

@@ -38,6 +38,7 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {SuperDCAListing} from "../../src/SuperDCAListing.sol";
 import {SuperDCAStaking} from "../../src/SuperDCAStaking.sol";
 import {SuperDCAGauge} from "../../src/SuperDCAGauge.sol";
+import {SuperDCAToken} from "../../src/SuperDCAToken.sol";
 
 // Deployment Script
 import {DeployGaugeBaseOptimism} from "../../script/DeployGaugeOptimism.s.sol";
@@ -101,6 +102,7 @@ contract OptimismIntegrationBase is Test {
 
     // DCA Token on Optimism
     address constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
+    address constant DCA_DEPLOYER = 0xC07E21c78d6Ad0917cfCBDe8931325C392958892; // superdca.eth
 
     // Test configuration
     uint256 constant STAKE_AMOUNT = 1000e18;
@@ -123,7 +125,6 @@ contract OptimismIntegrationBase is Test {
     IPermit2 public permit2;
 
     // Test addresses - using the same developer address as deployment script
-    address constant DEVELOPER = 0xC07E21c78d6Ad0917cfCBDe8931325C392958892; // superdca.eth
     address user1 = makeAddr("user1");
     address user2 = makeAddr("user2");
 
@@ -171,9 +172,14 @@ contract OptimismIntegrationBase is Test {
     }
 
     function _setupTestOwnership() internal {
-        // Since the deployment script sets the developer as owner/admin,
-        // we need to impersonate the developer to transfer ownership for testing
-        vm.startPrank(DEVELOPER);
+        // Transfer ownership of the Super DCA token to the hook (as the deployment script does)
+        vm.startPrank(DCA_DEPLOYER);
+        SuperDCAToken(DCA_TOKEN).transferOwnership(address(gauge));
+        vm.stopPrank();
+
+        // Impersonate the deployer to transfer ownership of the staking and listing contracts
+        // to this test contract
+        vm.startPrank(deployScript.deployerAddress());
 
         // Transfer staking ownership to test contract
         staking.transferOwnership(address(this));

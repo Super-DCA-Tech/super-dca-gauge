@@ -34,7 +34,6 @@ abstract contract DeployGaugeBase is Script {
 
     struct HookConfiguration {
         address poolManager;
-        address developerAddress;
         uint256 mintRate;
         address positionManager;
     }
@@ -53,6 +52,7 @@ abstract contract DeployGaugeBase is Script {
     }
 
     uint256 public deployerPrivateKey;
+    address public deployerAddress;
     SuperDCAGauge public hook;
     SuperDCAListing public listing;
     SuperDCAStaking public staking;
@@ -73,6 +73,9 @@ abstract contract DeployGaugeBase is Script {
         HookConfiguration memory hookConfig = getHookConfiguration();
         PoolConfiguration memory poolConfig = getPoolConfiguration();
 
+        // Get deployer address from private key
+        deployerAddress = vm.addr(deployerPrivateKey);
+
         // Deploy and wire contracts with the deployer key (must be the developer/admin)
         vm.startBroadcast(deployerPrivateKey);
 
@@ -83,9 +86,8 @@ abstract contract DeployGaugeBase is Script {
         );
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs = abi.encode(
-            hookConfig.poolManager, DCA_TOKEN, hookConfig.developerAddress, IPositionManager(hookConfig.positionManager)
-        );
+        bytes memory constructorArgs =
+            abi.encode(hookConfig.poolManager, DCA_TOKEN, deployerAddress, IPositionManager(hookConfig.positionManager));
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
@@ -94,7 +96,7 @@ abstract contract DeployGaugeBase is Script {
         hook = new SuperDCAGauge{salt: salt}(
             IPoolManager(hookConfig.poolManager),
             DCA_TOKEN,
-            hookConfig.developerAddress,
+            deployerAddress,
             IPositionManager(hookConfig.positionManager)
         );
 
@@ -102,19 +104,19 @@ abstract contract DeployGaugeBase is Script {
 
         _log("Deployed Hook:", address(hook));
 
-        // Deploy staking (owned by developer) and listing (admin = developer, expected hook = deployed hook)
-        staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, hookConfig.developerAddress);
+        // Deploy staking (owned by deployer) and listing (admin = deployer, expected hook = deployed hook)
+        staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, deployerAddress);
         listing = new SuperDCAListing(
             DCA_TOKEN,
             IPoolManager(hookConfig.poolManager),
             IPositionManager(hookConfig.positionManager),
-            hookConfig.developerAddress,
+            deployerAddress,
             IHooks(hook)
         );
 
-        // Ownable: SuperDCAStaking.setGauge (owner = developer)
+        // Ownable: SuperDCAStaking.setGauge (owner = deployer)
         staking.setGauge(address(hook));
-        // AccessControl: SuperDCAGauge.setStaking and setListing (DEFAULT_ADMIN_ROLE = developer)
+        // AccessControl: SuperDCAGauge.setStaking and setListing (DEFAULT_ADMIN_ROLE = deployer)
         hook.setStaking(address(staking));
         hook.setListing(address(listing));
 
@@ -143,22 +145,7 @@ abstract contract DeployGaugeBase is Script {
         _log("DCA Token:", DCA_TOKEN);
         _log("Hook:", address(hook));
         _log("Listing:", address(listing));
-        _log("Deployer:", vm.addr(deployerPrivateKey));
-
-        // Transfer ownership of the Super DCA token to the hook so it can mint tokens
-        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
-        _log("Transferred Super DCA token ownership to hook");
-
-        // Recover the Super DCA token ownership (for sanity)
-        hook.returnSuperDCATokenOwnership();
-        _log("Recovered Super DCA token ownership");
-        if (ISuperchainERC20(DCA_TOKEN).owner() != vm.addr(deployerPrivateKey)) {
-            revert("Hook should own the token");
-        }
-
-        // Transfer ownership of the Super DCA token to the hook
-        ISuperchainERC20(DCA_TOKEN).transferOwnership(address(hook));
-        _log("Transferred Super DCA token ownership to hook");
+        _log("Deployer:", deployerAddress);
 
         vm.stopBroadcast();
 

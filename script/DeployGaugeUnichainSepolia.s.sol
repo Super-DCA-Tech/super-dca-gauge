@@ -21,12 +21,7 @@ contract DeployGaugeUnichainSepolia is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({
-            poolManager: POOL_MANAGER,
-            developerAddress: DEVELOPER,
-            mintRate: MINT_RATE,
-            positionManager: POSITION_MANAGER
-        });
+        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER});
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {
