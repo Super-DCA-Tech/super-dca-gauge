@@ -71,7 +71,7 @@ Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held b
   6. Pair token from the NFP is now elligible to earn DCA token rewards, proportional to the amount of DCA staked to it on the staking system.
 - **Alternates / edge cases:** Reverts if hook mismatch, liquidity below threshold, token already listed, or pool key mismatched; zero `nftId` or zero addresses revert; only owner can adjust hook/min liquidity. No automatic delisting; liquidity becomes permenantly locked in the listing contract.
 - **On-chain ↔ off-chain interactions:** Off-chain process to prepare NFP; all validations on-chain using Uniswap managers; Owner can collect fees on this position using `collectFees`.
-- **Linked diagram:** `./diagrams/token-listing.md`
+- **Linked diagram:** [Token listing onboarding](./diagrams/token-listing.md)
 - **Linked tests:** `test/SuperDCAListing.t.sol` 
 
 ### Flow 2: Staking and reward distribution on liquidity events
@@ -85,7 +85,7 @@ Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held b
   5. PoolManager settles donation; rewards accounted in staking via updated indexes.
 - **Alternates / edge cases:** If pool has zero liquidity, all rewards go to developer; if mint fails, function continues without reverting and timestamp advances; if staking contract unset or token not listed, staking/ accrual reverts; paused or removed staking can halt accrual by setting mintRate=0 or revoking gauge authority.
 - **On-chain ↔ off-chain interactions:** Entire flow on-chain; developer wallet receives transfer; donation accrues as pool fees.
-- **Linked diagram:** `./diagrams/stake-reward-distribution.md`
+- **Linked diagram:** [Staking and reward distribution on liquidity events](./diagrams/stake-reward-distribution.md)
 - **Linked tests:**  `test/SuperDCAGauge.t.sol`
 
 ### Flow 3: Keeper rotation and dynamic fee enforcement
@@ -97,7 +97,7 @@ Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held b
   3. When swaps occur, hook queries `IMsgSender(sender).msgSender()`; if address is marked internal, 0% fee; else if matches keeper, apply `keeperFee`; otherwise apply `externalFee` with override flag.
 - **Alternates / edge cases:** Calls revert on zero amount or insufficient deposit; same keeper can increase deposit; manager role can retune fees or mark addresses; losing keeper obtains refund automatically; swapper classification depends on proxy contract implementing `IMsgSender`.
 - **On-chain ↔ off-chain interactions:** Keeper deposit handled on-chain; off-chain monitoring needed to top up deposit or detect replacements.
-- **Linked diagram:** `./diagrams/keeper-dynamic-fee.md`
+- **Linked diagram:** [Keeper rotation and dynamic fee enforcement](./diagrams/keeper-dynamic-fee.md)
 - **Linked tests:** Keeper deposit, refund, and fee configuration verified in `BecomeKeeperTest` suite and manager access tests in `test/SuperDCAGauge.t.sol`.
 
 ## 5. State, Invariants & Properties
@@ -117,24 +117,28 @@ Reward split | When donation occurs, minted rewards split 50/50 between develope
 Keeper supremacy | New keeper must deposit strictly more DCA; previous deposit refunded. | `becomeKeeper`; `test_becomeKeeper_replaceKeeper`, `test_becomeKeeper_revert_insufficientDeposit`.
 Mint failure tolerance | Reward accrual proceeds even if token minting fails. | `_tryMint`; `test_whenMintFails_onAddLiquidity`, `test_whenMintFails_onRemoveLiquidity`.
 
-- **Property checks / assertions:** Unit tests include fuzzing for staking stake/unstake operations and revert assertions for role checks. No dedicated invariant tests beyond test suites above.
+- **Property checks / assertions:** Unit tests include limited fuzzing for staking stake/unstake operations and revert assertions for role checks. No dedicated invariant tests beyond test suites above. Integration tests verify core functionality against OP mainnet using real Uniswap V4 contracts.
 
 ## 6. Economic & External Assumptions
 - **Token assumptions:** DCA token is 18 decimals, non-rebasing, no fee-on-transfer; staking requires direct `transferFrom`, so fee-on-transfer partners incompatible without adapters.
+- **Listable Tokens:** Any token listable through Uniswap V4 is eligible to earn DCA token rewards and can be listed through the Super DCA Listing contract.
 - **Oracle assumptions:** None; system does not consume price feeds.
 - **Liquidity/MEV/DoS assumptions:**
-  - LP-triggered rewards rely on sufficient keeper/LP activity; long idle periods delay minting but accrue in index.
-  - Donations require pool liquidity; empty pools route rewards entirely to developer, which may be contentious.
-  - `beforeSwap` executes every swap; gas overhead increases with dynamic fee logic and external `IMsgSender` call, assuming router implements interface.
-  - Keeper deposit race conditions assume honest refunds; no timelock on replacements.
+  - LP-triggered rewards rely on sufficient LP adds and removes; long idle periods delay minting but accrue in index.
+  - Donations require pool liquidity; empty pools route rewards entirely to developer.
+  - `beforeSwap` executes every swap; gas overhead increases with dynamic fee logic and external. Logic here kept simple as possible to avoid adding overhead for swaps.
+  - `IMsgSender` call, assuming router implements interface. Verified in integration tests.
+  - Keeper deposit is a up-only system; king of the hill won't be able to withdraw their deposit. Replacing the keeper is the only way to recover the keeper deposit.
 
 ## 7. Upgradeability & Initialization
 - **Pattern:** All contracts are non-upgradeable, deployed as regular Solidity contracts with constructor-set immutables. Ownership can be transferred manually.
+- **Predeployed DCA Token:** The DCA token is already deployed; its code is included in this repository for reference. This token is owned by `superdca.eth` currently but in practice its ownership is transferred to the gauge contract. Ownership can be recovered by the admin via `returnSuperDCATokenOwnership`.
 - **Initialization path:**
   - Gauge constructor sets DCA token, developer admin, default fees, and grants roles; admin later calls `setStaking`/`setListing`.
   - Staking constructor fixes token, mint rate, owner; owner sets gauge address post-deploy.
   - Listing constructor wires Uniswap managers, expected hook; owner can update hook later. Pool-level initialization occurs via Uniswap `initialize` using hook flags.
-- **Migration & upgrade safety checks:** Manual process—revoke gauge role or transfer token ownership before deploying replacements; ensure new contracts respect same interfaces before switching addresses.
+  - DCA Token ownership is transferred to the gauge contract. 
+- **Migration & upgrade safety checks:** Manual process—revoke gauge role or transfer token ownership before deploying replacements; ensure new contracts respect same interfaces before switching addresses. In practice, LPs will have to withdraw and move their liquidity if a new staking or gauge contract is deployed. Listed NFPs will remain forever locked in the listing contract as part of the protocols permenantly locked liquidity. Fees on these postions will be collectable by the listing owner.
 
 ## 8. Parameters & Admin Procedures
 - **Config surface:**
@@ -144,9 +148,9 @@ Parameter | Contract | Units / Range | Default | Who can change | Notes
 `mintRate` | Staking | DCA per second; expect ≤ token emission cap | Constructor arg | Owner or gauge | Setting to 0 halts new emissions.
 `staking` address | Gauge | Contract address | unset | Gauge admin | Must be set before liquidity events or accrual reverts.
 `listing` address | Gauge | Contract address | unset | Gauge admin | If unset, `isTokenListed` returns false, blocking staking.
-`internalFee` | Gauge | Uniswap fee (ppm) | 0 | Manager role | Applied to allowlisted traders.
-`externalFee` | Gauge | ppm | 5000 (0.50%) | Manager role | Default fallback fee.
-`keeperFee` | Gauge | ppm | 1000 (0.10%) | Manager role | Used when swapper == keeper.
+`internalFee` | Gauge | basis points * 100 | 0 | Manager role | Applied to allowlisted traders (i.e. Super DCA contracts).
+`externalFee` | Gauge | basis points * 100 | 5000 (0.50%) | Manager role | Default fallback fee for external traders (e.g., arbitrage/MEV traders).
+`keeperFee` | Gauge | basis points * 100 | 1000 (0.10%) | Manager role | Used when swapper == keeper.
 `isInternalAddress` | Gauge | bool map | false | Manager role | Grants 0% fee tier.
 `expectedHooks` | Listing | address | constructor | Listing owner | Must match gauge hook flags.
 `minLiquidity` | Listing | DCA wei | 1000e18 | Listing owner | Adjust to control listing quality.
@@ -170,6 +174,15 @@ Parameter | Contract | Units / Range | Default | Who can change | Notes
 
 ## 10. Build, Test & Reproduction
 - **Environment prerequisites:** Unix-like OS, Git, curl, Foundry toolchain (`forge`, `cast`, `anvil`) ≥ 1.0.0; Solidity compiler pinned to 0.8.26; Node optional for scripts; Python optional for utilities.
+
+The exact foundry version used by the developer:
+```bash
+% forge --version
+forge Version: 1.1.0-stable
+Commit SHA: d484a00089d789a19e2e43e63bbb3f1500eb2cbf
+Build Timestamp: 2025-04-30T13:50:49.971365000Z (1746021049)
+```
+
 - **Clean-machine setup:**
   ```bash
   # 1) Install Foundry
@@ -180,11 +193,11 @@ Parameter | Contract | Units / Range | Default | Who can change | Notes
   # 2) Clone repository
   git clone https://github.com/Super-DCA-Tech/super-dca-gauge.git
   cd super-dca-gauge
-  git checkout 908dd2204e9edd6ab430f3683084145a8d73e039
-  git tag -l 'audit-freeze-20250921'
+  git checkout TBD
+  git tag -l 'audit-freeze-TBD'
 
   # 3) (Optional) copy environment file for RPC endpoints
-  cp .env.example .env  # populate BASE_RPC_URL etc. when running scripts
+  cp .env.example .env  # populate OPTIMISM_RPC_URL etc. when running scripts
   ```
 - **Build:**
   ```bash
@@ -192,25 +205,34 @@ Parameter | Contract | Units / Range | Default | Who can change | Notes
   ```
 - **Tests:**
   ```bash
-  # Full suite
+  # Prerequisite for integration tests
+  export OPTIMISM_RPC_URL=<your_optimism_rpc_url>
+
+  # Full suite with integration tests
   forge test -vv
+
+  # Without integration tests
+  forge test -vv --no-match-path "test/integration/*"
 
   # Single test example
   forge test --match-test test_distribution_on_addLiquidity -vv
   ```
-- **Coverage / fuzzing:** No dedicated coverage artifacts committed; fuzz tests embedded in staking suite. To run coverage locally: `forge coverage --report lcov` (requires Foundry nightly).
+- **Coverage / fuzzing:** No dedicated coverage artifacts committed; fuzz tests very limited in staking suite; full coverage is only achieved by running the integration tests. To run coverage locally: `forge coverage --report lcov`. `.github/workflows/ci.yml` contains the coverage commands that could be used to run coverage locally.
 
 ## 11. Known Issues & Areas of Concern
-- Donation accounting in tests is marked TODO; pool donation success is not fully asserted, so auditors should validate via integration or simulation.
-- Gauge lacks explicit pause or timelock; admin compromises allow immediate fee or staking address changes.
+- Donation/reward accounting where rounding is observed, possibly due to mechanics inside Uniswap V4.
+- Gauge lacks explicit pause or timelock; admin compromises allow immediate fee or staking address changes. See `docs/GOV_SPEC.md` for planned governance implementation to address this. 
 - `SuperDCAStaking.stake` relies on `gauge.isTokenListed`; if `listing` not set or listing contract compromised, staking eligibility checks may fail-open/closed accordingly.
 - Dynamic fee logic trusts external `IMsgSender` implementations; malicious routers could spoof trader identity to obtain 0% fees.
+- Concerned with the open permission of `becomeKeeper`; anyone can become a keeper and receive the lowest fee tier.
+- Concerned about the ability to list any DCA/TOK pair permissionlessly; worried about exotic tokens potentially causing issues. 
+- The gauge contract holding the Keeper deposit and also distributing DCA token rewards; could the rewards be stolen by the keeper or could the keeper deposit be stolen by the gauge contract?
 
 ## 13. Appendix
 - **Glossary:**
   - **DCA Token:** ERC20 minted as protocol emissions.
   - **Gauge:** Uniswap v4 hook controlling liquidity event reward flows.
-  - **Internal User:** The Super DCA Pool contracts that will be allowlisted as internal users, pay 0% fees by default.
+  - **Internal Users:** The Super DCA Pool contracts (not included in this repo) that will be allowlisted as internal users, pay 0% fees by default.
   - **Keeper:** Highest-deposit participant receiving reduced swap fees, pays 0.10% by default.
   - **External Users:** Anyone who is not an internal user or keeper (i.e. arbitrage/MEV traders) that uses LPs with this hook, pay 0.50% fee by default.
   - **Listing NFP:** Uniswap v4 NFT proving liquidity commitment for partner token.
