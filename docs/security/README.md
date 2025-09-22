@@ -22,7 +22,7 @@
   - The hook is primary purpose is to offer Super DCA Pools that perform DCA 0% AMM fees. Super DCA Pool contracts will be set as "internal" addresses manually as they are deployed.
   - Additionally, all other users of these liquidity pools are charged a higher fee to make up for the 0% fee charged to the Super DCA pool contracts.
 - **How at a high level:** A listing contract holds full-range Uniswap v4 positions to whitelist partner tokens to earn DCA token rewards. Stakers deposit DCA into per-token buckets tracked by `SuperDCAStaking` to adjust the allocations of a fixed reward flow (10K DCA/month default). When LPs modify liquidity, the `SuperDCAGauge` hook accrues staking rewards, mints DCA via the token owner privilege, donates community rewards to the pool, and transfers the developer share. The hook also enforces dynamic swap fees (internal, keeper, external) and holds the keeper's DCA deposits. Anyone can become the keeper to receive a reduced fee if they stake the most DCA tokens to the `SuperDCAGauge` (i.e., king of the hill staking) Access is mediated via `AccessControl` (gauge) and `Ownable2Step` (staking/listing).
-- **Audit scope freeze:** Repository `super-dca-gauge` at commit `TBD`, tagged `TBD` on the `master` branch.
+- **Audit scope freeze:** Repository `super-dca-gauge` tagged `audit-freeze-20250922` on the `master` branch.
 
 ## Architecture Overview
 ### Module map
@@ -217,8 +217,8 @@ Build Timestamp: 2025-04-30T13:50:49.971365000Z (1746021049)
   # 2) Clone repository
   git clone https://github.com/Super-DCA-Tech/super-dca-gauge.git
   cd super-dca-gauge
-  git checkout TBD
-  git tag -l 'audit-freeze-TBD'
+  git checkout
+  git tag -l 'audit-freeze-20250922'
 
   # 3) (Optional) copy environment file for RPC endpoints
   cp .env.example .env  # populate OPTIMISM_RPC_URL etc. when running scripts
