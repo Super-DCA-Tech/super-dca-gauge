@@ -177,4 +177,4 @@ scopelint spec    # generate human-readable spec from test names
 
 The code in this repository is licensed under the [Apache License 2.0](LICENSE) unless otherwise indicated.
 
-Copyright (C) 2025 Super DCA
+Copyright (C) 2025 Michael Ghen
