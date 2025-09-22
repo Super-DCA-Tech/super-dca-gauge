@@ -815,6 +815,16 @@ contract SetStakingTest is AccessControlTest {
         assertEq(address(hook.staking()), newStaking, "Staking address should be updated");
     }
 
+    function test_EmitsStakingUpdatedEvent() public {
+        address oldStaking = address(hook.staking());
+        address newStaking = makeAddr("newStaking");
+
+        vm.prank(developer);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.StakingUpdated(oldStaking, newStaking);
+        hook.setStaking(newStaking);
+    }
+
     function test_RevertWhen_NonAdminSetsStaking() public {
         address newStaking = makeAddr("newStaking");
 
@@ -831,6 +841,46 @@ contract SetStakingTest is AccessControlTest {
         vm.expectRevert(SuperDCAGauge.ZeroAddress.selector);
         vm.prank(developer);
         hook.setStaking(address(0));
+    }
+}
+
+contract SetListingTest is AccessControlTest {
+    function test_Should_AllowAdminToSetListing() public {
+        address newListing = makeAddr("newListing");
+
+        vm.prank(developer);
+        hook.setListing(newListing);
+
+        assertEq(address(hook.listing()), newListing, "Listing address should be updated");
+    }
+
+    function test_EmitsListingUpdatedEvent() public {
+        address oldListing = address(hook.listing());
+        address newListing = makeAddr("newListing");
+
+        vm.prank(developer);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.ListingUpdated(oldListing, newListing);
+        hook.setListing(newListing);
+    }
+
+    function test_RevertWhen_NonAdminSetsListing() public {
+        address newListing = makeAddr("newListing");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(nonManagerUser);
+        hook.setListing(newListing);
+    }
+
+    function test_AllowsSettingListingToZeroAddress() public {
+        vm.prank(developer);
+        hook.setListing(address(0));
+
+        assertEq(address(hook.listing()), address(0), "Should allow setting listing to zero address");
     }
 }
 

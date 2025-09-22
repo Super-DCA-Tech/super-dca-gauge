@@ -140,6 +140,16 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /// @param deposit The amount of DCA tokens deposited by the new keeper.
     event KeeperChanged(address indexed oldKeeper, address indexed newKeeper, uint256 deposit);
 
+    /// @notice Emitted when the staking contract address is updated.
+    /// @param oldStaking The address of the previous staking contract.
+    /// @param newStaking The address of the new staking contract.
+    event StakingUpdated(address indexed oldStaking, address indexed newStaking);
+
+    /// @notice Emitted when the listing contract address is updated.
+    /// @param oldListing The address of the previous listing contract.
+    /// @param newListing The address of the new listing contract.
+    event ListingUpdated(address indexed oldListing, address indexed newListing);
+
     // ============ Custom Errors ============
 
     /// @notice Thrown when a pool is not configured with dynamic fees.
@@ -204,7 +214,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      */
     function setStaking(address stakingAddr) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (stakingAddr == address(0)) revert ZeroAddress();
+        address oldStaking = address(staking);
         staking = ISuperDCAStaking(stakingAddr);
+        emit StakingUpdated(oldStaking, stakingAddr);
     }
 
     /**
@@ -214,7 +226,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param _listing The address of the listing contract.
      */
     function setListing(address _listing) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldListing = address(listing);
         listing = ISuperDCAListing(_listing);
+        emit ListingUpdated(oldListing, _listing);
     }
 
     /**
