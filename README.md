@@ -1,5 +1,4 @@
 # Super DCA Gauge
-A system for developers looking to do a fair distribution of an inflationary token that is split 50/50 between the community (i.e., Uniswap V4 Liquidity Providers) and the developers.
 
 ![Super DCA Gauge](./images/UniswapHookEmitterBanner.jpg)
 <div align="center">
@@ -8,148 +7,162 @@ Part of the Super DCA Framework
 <a href="https://github.com/Super-DCA-Tech/super-dca-token">🌐 Token</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-gauge">📊 Gauge</a> &nbsp;|&nbsp; <a href="https://github.com/Super-DCA-Tech/super-dca-contracts">🏊 Pool</a>
 </div>
 
-## Super DCA Gauge Distribution System Specifications
-The `SuperDCAGauge` contract is a specialized Uniswap V4 pool hook designed to implement a staking and reward distribution system for [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) tokens. It integrates with Uniswap V4 pools to distribute rewards during liquidity events. The primary functions of the `SuperDCAGauge` are:
+## Super DCA Gauge
 
-- **Before Initialize**: When a pool using the `SuperDCAGauge` hook is created, the hook:
-  1. Reverts if the pool is not using the `SuperDCAToken` token or has a fee tier other than 0.05%
+Super DCA Gauge is a Uniswap v4 hook plus companion staking and listing modules that make it easy to distribute onchain emissions of the `SuperDCAToken` to eligible Uniswap v4 pools and the developer treasury. Rewards are minted by the gauge, split 50/50 between the community (donated to the pool) and the developer, and are triggered during liquidity events. The hook also enforces dynamic swap fees and supports a keeper system make Super DCA so super!
 
-- **Before Liquidity Addition**: When liquidity is added to the pool, the hook:
-  1. Updates the global reward index based on elapsed time and mint rate
-  2. Calculates rewards for the pool based on staked amounts
-  3. If rewards are available:
-     - Splits rewards 50/50 between the pool (community) and developer
-     - Donates the community share to the pool
-     - Transfers the developer share to the developer address
+## How it works:
 
-- **Before Liquidity Removal**: The same distribution process occurs before liquidity is removed, following identical steps as the liquidity addition hook.
+### 1. Deploy and configure the Gauge suite
+- Deploy `SuperDCAGauge` with the DCA token and an admin (developer multisig) as the default admin.
+- Deploy `SuperDCAStaking` with the DCA token and an initial `mintRate` (emissions per second). Set the gauge as the authorized caller via `setGauge`.
+- Deploy `SuperDCAListing` with the Uniswap managers and the expected hook address. The owner uses it to list partner tokens via full‑range positions.
+- Transfer `SuperDCAToken` ownership to the gauge so it can mint rewards. Ownership can be reclaimed later via `returnSuperDCATokenOwnership` if needed.
+- Configure dynamic swap fees with `setFee` and optionally mark internal addresses (e.g., Super DCA Pools) via `setInternalAddress`.
 
-Key features:
-- Only processes rewards for pools that include SuperDCAToken and have the correct fee (0.05%)
-- Users can stake SuperDCATokens for specific token pools to participate in rewards
-- Rewards for each pool are calculated based on staked amounts per pool, the total staked amount, the mint rate, and time elapsed
+### 2. Tokenholders list and stake
+- Listing owner calls `list(nftId, poolKey)` to permanently custody a full‑range NFP and mark the paired token as eligible.
+- DCA holders stake to the token’s bucket in `SuperDCAStaking` via `stake(listedToken, amount)`. Unstake at any time with `unstake`.
+- The global reward index accrues over time as a function of `mintRate` and total stake; per‑token rewards are proportional to each token’s share of the total stake.
 
-### Distribution
+### 3. Gauge donates rewards on liquidity events and enforces fees
+- When LPs add or remove liquidity, the pool manager invokes the gauge hook. The gauge syncs staking, calls `accrueReward(listedToken)`, and mints DCA.
+- Minted rewards are split 50/50: the community share is donated to the pool, and the developer share is transferred to the developer address. If the pool has zero liquidity, the entire amount goes to the developer.
+- On swaps, the hook sets fees dynamically: 0% for internal addresses, 0.10% for the keeper, and 0.50% for all others (values configurable by managers). Fees are applied per‑swap via Uniswap v4’s dynamic fee override flag.
+
+When used by a protocol or DAO, emissions are funded by the DCA token’s issuance (via gauge ownership of the token). The default configuration targets a fixed reward flow (e.g., 10K DCA/month) but is fully configurable onchain via `mintRate`.
+
+## Implementation details:
+
+The system is composed of three non‑upgradeable contracts with clear responsibilities:
+
+- `SuperDCAGauge` (Uniswap v4 hook)
+  - Distributes rewards on liquidity events; enforces pool eligibility (must include DCA and dynamic fee flag).
+  - Enforces dynamic swap fees (internal/keeper/external tiers) and holds the keeper’s up‑only deposit.
+  - Key admin: `setStaking`, `setListing`, `updateManager`, `setFee`, `setInternalAddress`, `becomeKeeper`, `returnSuperDCATokenOwnership`.
+- `SuperDCAStaking`
+  - Tracks global `rewardIndex`, per‑token stake, and `mintRate` (DCA/sec). Only the configured gauge can call `accrueReward`.
+  - Key admin: `setGauge`, `setMintRate` (owner or gauge).
+- `SuperDCAListing`
+  - Custodies full‑range NFPs, validates expected hook, and marks partner tokens as listed; owner can `collectFees` from locked positions.
+
+Design properties:
+- Accrual monotonicity: the global `rewardIndex` only increases when stake > 0; per‑token accounting mirrors Aave‑style index math.
+- 50/50 split: donation to pools and developer transfer are equal (±1 wei rounding) when mint succeeds; accrual proceeds even if minting fails.
+- Keeper rotation: `becomeKeeper(amount)` requires a strictly higher deposit and automatically refunds the previous keeper.
+
+### Staking & distribution system
+
 ```mermaid
 stateDiagram-v2
-    direction LR
+    direction TB
 
-    state "Liquidity Provider" as LP_ETH
-    state "ETH‑DCA Pool" as Pool_ETH
-    state "SuperDCAGauge (ETH‑DCA)" as Hook_ETH
-    state "SuperDCAToken" as Token
-    state "Developer" as Developer
-    
+    User --> Staking: stake(listedToken, amount)
+    LP --> PoolManager: add/remove liquidity
+    state "Listing Agent" as ListingAgent
 
-    %% ETH‑DCA Pool Flow
-    LP_ETH --> Pool_ETH: 1.mint/burn()
-    Pool_ETH --> Hook_ETH: 2.beforeAdd/RemoveLiquidity()
-    Hook_ETH --> Token: 3.mint()
-    Token --> Hook_ETH: 4.transfer()
-    Hook_ETH --> Pool_ETH: 5.donate()
-    Hook_ETH --> Developer: 6.transfer()
+    state "SuperDCAGauge" as Gauge {
+        state "Hook callbacks" as HC {
+            _beforeAddLiquidity
+            _beforeRemoveLiquidity
+            _beforeSwap
+        }
+        state "Admin" as GA {
+            setStaking
+            setListing
+            setFee
+            setInternalAddress
+            becomeKeeper
+        }
+    }
+
+    state "SuperDCAStaking" as Staking {
+        rewardIndex
+        mintRate
+        stake
+        unstake
+        accrueReward
+    }
+
+    state "SuperDCAListing" as Listing {
+        list
+        collectFees
+    }
+
+    state "Uniswap PositionManager" as PositionManager
+    state "Uniswap PoolManager" as PoolManager
+
+    Staking --> Listing: check listed(token)
+    ListingAgent --> Listing: list(nftId, poolKey)
+    Listing --> PositionManager: custody NFP / validate full-range
+    Listing --> PoolManager: validate expected hook
+    Owner --> Listing: collectFees(recipient)
+
+    PoolManager --> Gauge: beforeModifyLiquidity()
+    Gauge --> Staking: accrueReward(token)
+    Gauge --> Token: mint()
+    Gauge --> PoolManager: donate(community 50%)
+    Gauge --> Developer: transfer(developer 50%)
 ```
-1. The `Liquidity Provider` adds/removes liquidity to the `ETH‑DCA Pool`
-2. The `ETH‑DCA Pool` calls the `SuperDCAGauge` hook's beforeModifyLiquidity function
-3. The `SuperDCAGauge` calculates rewards based on elapsed time and staked amounts
-4. The [`SuperDCAToken`](https://github.com/Super-DCA-Tech/super-dca-token) mints new tokens to the `SuperDCAGauge` based on the mint rate
-
-The `SuperDCAGauge` splits rewards 50/50 between:
-
-   5. Pool (community share): Donated via Uniswap v4's donate function
-   6. Developer: Transferred directly to developer address
-
-### Staking
-The `SuperDCAGauge` contract implements a gauge-style staking and reward distribution system for Uniswap V4 pools. When users add or remove liquidity from eligible pools (e.g., 0.05% fee tier pools containing DCA token), rewards are distributed to the members of the pool using Uniswap v4 `donate` functionality. 
-
-
-DCA token holders `stake` their tokens in the `SuperDCAGauge` contract for a specific `token` pool (e.g., USDC, WETH). The magnitude of the stake amount relative to the total staked amount for all tokens determines the reward amount for each token's pool (e.g., USDC-DCA, WETH-DCA). The reward amount for each pool is calculated based on tracking an index that increases over time according to the mint rate. The following are the key formulas for the reward calculation:
-```
-# Minted Tokens
-mintedTokens = mintRate * timeElapsed
-
-# Reward Index
-rewardIndex += mintedTokens / totalStaked
-
-# Reward per token
-reward = token.stakedAmount * (currentRewardIndex - token.lastRewardIndex)
-```
-where the reward index increases over time according to the mint rate. All rewards are split 50/50 between the pool (community) and developer. The `rewardIndex` in the contract closely mirrors the `incomeIndex`-method used by Aave for interest accrual. 
-
-#### Example
-In this example, we show how the `rewardIndex` is updated to accrue rewards for all pools. Consider two pools with 1000 total DCA staked:
-```
-USDC-DCA pool: 600 DCA staked (60%)
-WETH-DCA pool: 400 DCA staked (40%)
-Total Staked = 1000 DCA
-```
-Consider the emission rate of 100 DCA/s (in wei). After 20 seconds, _2000 DCA_  rewards are generated. Which means that the community share is **1000 DCA**.
-```
-Current Reward Index = 0 
-Reward Amount    = 1000 DCA
-Total Staked     = 1000 DCA
-Reward per Token = Reward / Total Staked
-                 = 1000 DCA / 1000 DCA
-                 = 1 DCA
-Next Reward Index += Rewards per Token
-                  = 0 + 1 DCA
-                  = 1 DCA
-```
-This indicates all pools have been credited with 1 units of reward _per token staked_ to the token's pool. And the math for recovering the current amount of rewards for each pool is as follows:
-```
-Pool Reward = stakedAmount * (currentIndex - lastClaimIndex)
-USDC-DCA Reward = 600 DCA * (1 - 0) = 600 DCA
-WETH-DCA Reward = 400 DCA * (1 - 0) = 400 DCA
-```
-When a pool triggers a reward distribution, the `rewardIndex` is updated to the current index and that pool's share of the rewards is minted and distributed to the pool and the developer. The other pools that did not trigger a reward distribution are not affected.
 
 ### Dynamic Fees
-The `SuperDCAGauge` implements a dynamic fee system using Uniswap V4's dynamic fee capability, allowing for differentiated swap fees based on the trader's classification. This feature enables preferential fee treatment for internal ecosystem participants and keepers while maintaining standard fees for external users.
+Super DCA is so super because it offers 0% fees for long-term orders (i.e., Super DCA Pool contracts performing DCA swaps). It also offers a reduced fee for a keeper who is staking the most DCA to the Super DCA Gauge (i.e., king of the hill staking). To make up for these reduced fees, the Super DCA Gauge offers a higher fee for external swappers (i.e., short-term traders not doing DCA).
 
-#### Fee Structure
-- **Internal Fee**: 0% (0 basis points) - Applied to addresses marked as "internal"
-- **Keeper Fee**: 0.10% (1000 basis points) - Applied to the current keeper address
-- **External Fee**: 0.50% (5000 basis points) - Applied to all other addresses
-- **Dynamic Application**: Fees are determined at swap time based on the swapper's classification
+```mermaid
+sequenceDiagram
+    participant Swapper as Swapper (any address)
+    participant Pool as Uniswap PoolManager
+    participant Gauge as SuperDCAGauge
+    participant Proxy as IMsgSender(sender)
 
-#### Fee Priority
-The system prioritizes fee determination in the following order:
-1. **Internal addresses** receive 0% fee (highest priority)
-2. **Keeper address** receives 0.10% fee 
-3. **All other addresses** receive 0.50% fee (lowest priority)
+    Swapper->>Pool: swap(params)
+    Pool->>Gauge: beforeSwap(sender)
+    Gauge->>Proxy: msgSender()
+    Proxy-->>Gauge: swapper address
 
-#### Keeper System
-The keeper system implements a "king-of-the-hill" staking mechanism:
-- **Single Keeper**: Only one address can be the keeper at any time
-- **Deposit Requirement**: To become keeper, a user must deposit more DCA tokens than the current keeper
-- **Automatic Refund**: The previous keeper's deposit is automatically returned when replaced
-- **Fee Benefit**: The keeper receives reduced swap fees (0.10% vs 0.50% for external users)
+    alt swapper marked internal
+        Gauge-->>Pool: set internalFee == 0.00%
+    else swapper == keeper
+        Gauge-->>Pool: set keeperFee == 0.10%   
+    else external swapper
+        Gauge-->>Pool: set externalFee == 0.50%   
+    end
+```
 
-##### Becoming a Keeper
-Users can become the keeper by calling `becomeKeeper(uint256 amount)`:
-- The amount must be greater than the current keeper's deposit
-- The function transfers the deposit from the user and refunds the previous keeper
-- A `KeeperChanged` event is emitted for transparency
+## Usage
 
-#### Technical Implementation
-The dynamic fee system operates through the `_beforeSwap` hook:
+The repository can be used directly to deploy the system or imported into a Foundry project for integration testing and customization.
 
-1. **Address Classification**: The system identifies the actual swapper using `IMsgSender(sender).msgSender()` to handle cases where swaps are routed through intermediary contracts
-2. **Fee Selection**: Based on the swapper's classification, fees are applied in priority order:
-   - Internal addresses: `internalFee` (0%)
-   - Keeper address: `KEEPER_POOL_FEE` (0.10%)
-   - All others: `externalFee` (0.50%)
-3. **Dynamic Override**: The selected fee is returned with the `LPFeeLibrary.OVERRIDE_FEE_FLAG` to dynamically set the pool's fee for that specific swap
+### Build and test
 
-#### Management Functions
-The fee system includes several management capabilities:
+This project uses Foundry. Ensure you have Foundry installed, then:
 
-**Manager Role Functions** (restricted to `MANAGER_ROLE`):
-- **`setFee(bool _isInternal, uint24 _newFee)`**: Updates either internal or external fee rates
-- **`setInternalAddress(address _user, bool _isInternal)`**: Marks or unmarks addresses as internal for preferential fee treatment
+```bash
+cp .env.example .env  # populate OPTIMISM_RPC_URL for integration tests
+forge install
+forge build
 
-**Public Functions**:
-- **`becomeKeeper(uint256 amount)`**: Allows users to become the keeper by depositing more DCA tokens than the current keeper (king-of-the-hill mechanism)
+# Full suite (includes Optimism mainnet integration tests)
+export OPTIMISM_RPC_URL=<your_optimism_rpc_url>
+forge test -vv
+
+# Without integration tests
+forge test -vv --no-match-path "test/integration/*"
+```
+
+### Spec and lint
+
+This repo uses `scopelint` for linting and spec generation.
+
+```bash
+scopelint check   # check formatting
+scopelint fmt     # apply formatting changes
+scopelint spec    # generate human-readable spec from test names
+```
+
+### Documentation
+- Security/design overview: `docs/security/README.md`
+- Diagrams: `docs/security/diagrams/*`
 
 ## Deployment Addresses
 | Network | Contract | Address |
@@ -159,3 +172,9 @@ The fee system includes several management capabilities:
 | Optimism | `SuperDCAGauge` | [0xb4f4Ad63BCc0102B10e6227236e569Dce0d97A80](https://optimistic.etherscan.io/address/0xb4f4Ad63BCc0102B10e6227236e569Dce0d97A80) |
 | Base Sepolia | `SuperDCAGauge` | [0x741810C3Fb97194dEcB045E45b9920680E1d7a80](https://sepolia.basescan.org/address/0x741810C3Fb97194dEcB045E45b9920680E1d7a80) |
 | Unichain Sepolia | `SuperDCAGauge` | [0xEC67C9D1145aBb0FBBc791B657125718381DBa80](https://unichain-sepolia.blockscout.com/address/0xEC67C9D1145aBb0FBBc791B657125718381DBa80) |
+
+## License
+
+The code in this repository is licensed under the [Apache License 2.0](LICENSE) unless otherwise indicated.
+
+Copyright (C) 2025 Super DCA
