@@ -84,7 +84,7 @@ Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held b
   2. Owner calls `list(nftId, poolKey)` on `SuperDCAListing`.
   3. Contract pulls actual pool metadata, checks hook equals configured gauge, validates full-range ticks and minimum DCA liquidity.
   4. Contract marks partner token as listed, records NFP → token mapping, and transfers NFT custody to itself.
-  5. Pair token from the NFP is now elligible to earn DCA token rewards, proportional to the amount of DCA staked to it on the staking system.
+  5. Pair token from the NFP is now eligible to earn DCA token rewards, proportional to the amount of DCA staked to it on the staking system.
 - **Alternates / edge cases:** Reverts if hook mismatch, liquidity below threshold, token already listed, or pool key mismatched; zero `nftId` or zero addresses revert; only owner can adjust hook/min liquidity. No automatic delisting; liquidity becomes permanently locked in the listing contract.
 - **On-chain ↔ off-chain interactions:** Off-chain process to prepare NFP; all validations on-chain using Uniswap managers; Owner can collect fees on this position using `collectFees`.
 - **Linked diagram:** [Token listing onboarding](./diagrams/token-listing.md)
