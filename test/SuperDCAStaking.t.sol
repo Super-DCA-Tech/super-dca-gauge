@@ -345,7 +345,7 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         assertEq(lastIndex, staking.rewardIndex());
     }
 
-    function test_PoC_UnstakeBeforeAccrue_WipesBucketDelta() public {
+    function test_PoC_UnstakeBeforeAccrue_PreservesRewards() public {
         // Set up a single bucket stake
         vm.prank(user);
         staking.stake(tokenA, 100e18);
@@ -356,12 +356,32 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         //what should be paid
         uint256 expectedMint = secs * rate;
         assertGt(expectedMint, 0, "sanity");
-        // Unstake before accrue resets bucket lastRewardIndex and wipes delta
+        // Unstake before accrue - rewards should be preserved now
         vm.prank(user);
         staking.unstake(tokenA, 1);
-        // Accrue now => pays 0 due to wiped delta
+        // Accrue now => should pay expected rewards despite unstake
         vm.prank(gauge);
         uint256 paid = staking.accrueReward(tokenA);
-        assertEq(paid, 0, "pending bucket rewards wiped by unstake reset");
+        assertEq(paid, expectedMint, "pending bucket rewards should be preserved");
+    }
+
+    function test_StakeBeforeAccrue_PreservesRewards() public {
+        // Set up a single bucket stake
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        // Let rewards accrue
+        uint256 start = staking.lastMinted();
+        uint256 secs = 100;
+        vm.warp(start + secs);
+        //what should be paid
+        uint256 expectedMint = secs * rate;
+        assertGt(expectedMint, 0, "sanity");
+        // Stake more before accrue - rewards should be preserved now
+        vm.prank(user);
+        staking.stake(tokenA, 50e18);
+        // Accrue now => should pay expected rewards despite additional stake
+        vm.prank(gauge);
+        uint256 paid = staking.accrueReward(tokenA);
+        assertEq(paid, expectedMint, "pending bucket rewards should be preserved after stake");
     }
 }
