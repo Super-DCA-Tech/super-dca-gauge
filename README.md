@@ -129,6 +129,19 @@ sequenceDiagram
     end
 ```
 
+## Security
+
+### Flash Loan Vulnerability Fix (M-1)
+
+The SuperDCAStaking contract has been updated to prevent a flash loan attack where the first depositor could exploit a time gap to claim unearned rewards.
+
+**Fix**: The constructor now deposits 1 DCA token from the deployer, ensuring `totalStakedAmount` is never 0.
+
+**Deployment Requirement**: Deployer must have 1 DCA token and approve the future staking contract address before deployment.
+
+📖 See [`SECURITY_FIX_SUMMARY.md`](./SECURITY_FIX_SUMMARY.md) for detailed vulnerability analysis  
+📋 See [`DEPLOYMENT_NOTES.md`](./DEPLOYMENT_NOTES.md) for deployment instructions
+
 ## Usage
 
 The repository can be used directly to deploy the system or imported into a Foundry project for integration testing and customization.
