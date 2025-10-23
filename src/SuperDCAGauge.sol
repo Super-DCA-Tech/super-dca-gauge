@@ -278,7 +278,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @notice Validates that pools using this hook include the SuperDCA token and have the required tick spacing.
      * @dev Called before pool initialization to ensure only valid DCA pools use this hook.
      *      Prevents misconfiguration by requiring one currency to be the SuperDCA token.
-     *      Also restricts tick spacing to exactly 1 to prevent duplicate pools with different tick spacing values.
+     *      Also restricts tick spacing to 60 to prevent duplicate pools with different tick spacing values.
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */
