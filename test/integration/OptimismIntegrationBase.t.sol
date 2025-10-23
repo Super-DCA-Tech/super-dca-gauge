@@ -639,7 +639,7 @@ contract OptimismIntegrationBase is Test {
         returns (PoolKey memory key, PoolId poolId)
     {
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (key, poolId) = _createTestPool(token, int24(1), sqrtPriceX96);
+        (key, poolId) = _createTestPool(token, int24(60), sqrtPriceX96);
 
         // Add initial liquidity to enable swaps
         _createFullRangePosition(key, initialLiquidity0, initialLiquidity1, address(this));

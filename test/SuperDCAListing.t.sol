@@ -54,14 +54,14 @@ contract SuperDCAListingTest is Test, Deployers {
                 currency0: Currency.wrap(tokenA),
                 currency1: Currency.wrap(tokenB),
                 fee: fee,
-                tickSpacing: 1,
+                tickSpacing: 60,
                 hooks: IHooks(address(0))
             })
             : PoolKey({
                 currency0: Currency.wrap(tokenB),
                 currency1: Currency.wrap(tokenA),
                 fee: fee,
-                tickSpacing: 1,
+                tickSpacing: 60,
                 hooks: IHooks(address(0))
             });
     }
@@ -617,7 +617,7 @@ contract CollectFees is SuperDCAListingTest {
             currency0: CurrencyLibrary.ADDRESS_ZERO,
             currency1: Currency.wrap(address(dcaToken)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 1,
+            tickSpacing: 60,
             hooks: IHooks(address(0))
         });
 
@@ -657,7 +657,7 @@ contract CollectFees is SuperDCAListingTest {
             currency0: CurrencyLibrary.ADDRESS_ZERO,
             currency1: Currency.wrap(address(dcaToken)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 1,
+            tickSpacing: 60,
             hooks: IHooks(address(0))
         });
 

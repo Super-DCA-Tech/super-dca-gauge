@@ -54,7 +54,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
     uint24 public constant KEEPER_POOL_FEE = 1000; // 0.10%
     uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
-    int24 public constant REQUIRED_TICK_SPACING = 1; // Required tick spacing to prevent duplicate pools
+    int24 public constant REQUIRED_TICK_SPACING = 60; // Required tick spacing to prevent duplicate pools
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**

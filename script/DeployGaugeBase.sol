@@ -125,7 +125,7 @@ abstract contract DeployGaugeBase is Script {
             currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
             currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 1,
+            tickSpacing: 60,
             hooks: IHooks(hook)
         });
 
@@ -133,7 +133,7 @@ abstract contract DeployGaugeBase is Script {
             currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
             currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 1,
+            tickSpacing: 60,
             hooks: IHooks(hook)
         });
 
