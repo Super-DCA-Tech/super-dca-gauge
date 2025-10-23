@@ -384,4 +384,78 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         uint256 paid = staking.accrueReward(tokenA);
         assertEq(paid, expectedMint, "pending bucket rewards should be preserved after stake");
     }
+
+    function test_MultipleStakeUnstakeBeforeAccrue_PreservesRewards() public {
+        // Set up initial stake
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        // Let rewards accrue for 50 seconds
+        uint256 start = staking.lastMinted();
+        vm.warp(start + 50);
+        
+        // Stake more (should accumulate pending rewards from first period)
+        vm.prank(user);
+        staking.stake(tokenA, 50e18);
+        
+        // Let more rewards accrue for another 50 seconds with 150e18 total staked
+        vm.warp(start + 100);
+        
+        // Unstake some (should accumulate pending rewards again)
+        vm.prank(user);
+        staking.unstake(tokenA, 25e18);
+        
+        // Accrue should pay all accumulated rewards
+        // Period 1: 100e18 staked, 50 seconds = 5000 rewards
+        // Period 2: 150e18 staked, 50 seconds = 5000 rewards minted -> index increases by (5000 * 1e18 / 150e18) = 33
+        //           150e18 * 33 / 1e18 = 4950 rewards
+        // Total: 5000 + 4950 = 9950 (with rounding)
+        vm.prank(gauge);
+        uint256 paid = staking.accrueReward(tokenA);
+        assertEq(paid, 9950, "all pending rewards should be preserved (with rounding)");
+    }
+
+    function test_AccrueMultipleTimes_ResetsPendingRewards() public {
+        // Set up stake and let rewards accrue
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        vm.warp(staking.lastMinted() + 50);
+        
+        // First accrue
+        vm.prank(gauge);
+        uint256 firstAccrue = staking.accrueReward(tokenA);
+        assertGt(firstAccrue, 0, "first accrue should have rewards");
+        
+        // Immediate second accrue should return 0
+        vm.prank(gauge);
+        uint256 secondAccrue = staking.accrueReward(tokenA);
+        assertEq(secondAccrue, 0, "second immediate accrue should return 0");
+        
+        // Let more time pass
+        vm.warp(block.timestamp + 50);
+        
+        // Third accrue should have new rewards
+        vm.prank(gauge);
+        uint256 thirdAccrue = staking.accrueReward(tokenA);
+        assertGt(thirdAccrue, 0, "third accrue after time should have rewards");
+    }
+
+    function test_PreviewPending_IncludesAccumulatedRewards() public {
+        // Set up stake
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        vm.warp(staking.lastMinted() + 50);
+        
+        // Preview should show pending rewards
+        uint256 preview1 = staking.previewPending(tokenA);
+        assertGt(preview1, 0, "preview should show pending rewards");
+        
+        // Stake more (accumulates pending rewards)
+        vm.prank(user);
+        staking.stake(tokenA, 50e18);
+        
+        // Preview should still show the accumulated rewards
+        uint256 preview2 = staking.previewPending(tokenA);
+        assertGe(preview2, preview1, "preview should include accumulated rewards");
+    }
 }
