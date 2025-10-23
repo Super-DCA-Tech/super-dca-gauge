@@ -164,10 +164,13 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
      * @notice Updates the mint rate used for global reward index growth.
      * @dev Callable by either the contract owner or the authorized gauge for operational
      *      flexibility. Higher mint rates increase reward accumulation speed for all stakers.
+     *      Applies old rewards before updating the rate to maintain the invariant that
+     *      past time is priced at the old rate.
      * @param newMintRate The new mint rate in tokens per second.
      */
     function setMintRate(uint256 newMintRate) external override {
         if (msg.sender != owner() && msg.sender != gauge) revert SuperDCAStaking__NotAuthorized();
+        _updateRewardIndex(); // Apply old rate to past interval before changing
         mintRate = newMintRate;
         emit MintRateUpdated(newMintRate);
     }
