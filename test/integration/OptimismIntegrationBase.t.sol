@@ -366,9 +366,9 @@ contract OptimismIntegrationBase is Test {
         assertEq(staking.getUserStake(user, token), expectedAmount, "Stake amount mismatch");
     }
 
-    /// @notice Helper to assert total staked amount
+    /// @notice Helper to assert total staked amount (accounts for 1 token constructor deposit)
     function _assertTotalStaked(uint256 expectedTotal) internal view {
-        assertEq(staking.totalStakedAmount(), expectedTotal, "Total staked amount mismatch");
+        assertEq(staking.totalStakedAmount(), expectedTotal + 1, "Total staked amount mismatch");
     }
 
     /// @notice Get current price for DCA/WETH pool (for testing purposes)

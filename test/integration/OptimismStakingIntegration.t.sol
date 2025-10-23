@@ -141,6 +141,11 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
     function testFork_Stake_NoGauge() public {
         // ---- Arrange ----
         // Deploy a new staking contract without gauge set
+        // First approve 1 token for the constructor deposit
+        IERC20(DCA_TOKEN).approve(address(0), 1); // Approve to any address temporarily
+        // Compute the future address and approve properly
+        address futureAddress = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        IERC20(DCA_TOKEN).approve(futureAddress, 1);
         SuperDCAStaking newStaking = new SuperDCAStaking(DCA_TOKEN, MINT_RATE, address(this));
 
         uint256 stakeAmount = STAKE_AMOUNT;

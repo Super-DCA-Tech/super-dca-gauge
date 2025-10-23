@@ -25,6 +25,17 @@ contract SuperDCAStakingTest is Test {
         rate = 100;
 
         dca = new MockERC20Token("Super DCA", "SDCA", 18);
+        
+        // Mint 1 DCA token for deployer (address(this)) for constructor deposit
+        dca.mint(address(this), 1);
+        
+        // Compute the address of the next contract that will be deployed
+        // The nonce for address(this) after creating MockERC20Token is 1
+        address futureStakingAddress = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        
+        // Approve the future staking contract to spend 1 DCA token
+        dca.approve(futureStakingAddress, 1);
+        
         staking = new SuperDCAStaking(address(dca), rate, admin);
         vm.prank(admin);
         staking.setGauge(gauge);
@@ -65,7 +76,7 @@ contract Constructor is SuperDCAStakingTest {
         assertEq(staking.mintRate(), rate);
         assertEq(staking.lastMinted(), block.timestamp);
         assertEq(staking.rewardIndex(), 0);
-        assertEq(staking.totalStakedAmount(), 0);
+        assertEq(staking.totalStakedAmount(), 1); // Changed from 0 to 1 due to constructor deposit
         assertEq(staking.owner(), admin);
     }
 
@@ -77,10 +88,15 @@ contract Constructor is SuperDCAStakingTest {
 
     function testFuzz_SetsArbitraryValues(address _owner, uint256 _rate) public {
         vm.assume(_owner != address(0));
+        // Mint and approve 1 token for the constructor deposit
+        dca.mint(address(this), 1);
+        address futureAddress = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        dca.approve(futureAddress, 1);
         SuperDCAStaking s = new SuperDCAStaking(address(dca), _rate, _owner);
         assertEq(s.owner(), _owner);
         assertEq(s.mintRate(), _rate);
         assertEq(address(s.DCA_TOKEN()), address(dca));
+        assertEq(s.totalStakedAmount(), 1); // Verify constructor deposit
     }
 }
 
@@ -143,7 +159,7 @@ contract Stake is SuperDCAStakingTest {
         (uint256 stakedAmount, uint256 lastIndex) = staking.tokenRewardInfos(tokenA);
         assertEq(stakedAmount, _amount);
         assertEq(lastIndex, staking.rewardIndex());
-        assertEq(staking.totalStakedAmount(), _amount);
+        assertEq(staking.totalStakedAmount(), _amount + 1); // +1 for constructor deposit
         assertEq(staking.getUserStake(user, tokenA), _amount);
         assertEq(staking.getUserStakedTokens(user).length, 1);
         assertEq(dca.balanceOf(user), beforeBal - _amount);
@@ -326,7 +342,7 @@ contract TotalStaked is SuperDCAStakingTest {
         staking.stake(tokenB, 70);
         staking.unstake(tokenA, 20);
         vm.stopPrank();
-        assertEq(staking.totalStakedAmount(), 100);
+        assertEq(staking.totalStakedAmount(), 101); // 50 + 70 - 20 + 1 (constructor deposit)
     }
 }
 
@@ -343,5 +359,120 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         (uint256 stakedAmount, uint256 lastIndex) = staking.tokenRewardInfos(tokenA);
         assertEq(stakedAmount, 42);
         assertEq(lastIndex, staking.rewardIndex());
+    }
+}
+
+contract FlashLoanVulnerabilityTest is Test {
+    SuperDCAStaking staking;
+    MockERC20Token dca;
+    address admin;
+    address gauge;
+    address attacker;
+    address tokenA;
+    uint256 rate;
+
+    function setUp() public {
+        admin = makeAddr("Admin");
+        gauge = makeAddr("Gauge");
+        attacker = makeAddr("Attacker");
+        tokenA = address(0x1111);
+        rate = 100;
+
+        dca = new MockERC20Token("Super DCA", "SDCA", 18);
+        
+        // Mint and approve 1 DCA token for constructor deposit
+        dca.mint(address(this), 1);
+        address futureStakingAddress = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        dca.approve(futureStakingAddress, 1);
+        
+        staking = new SuperDCAStaking(address(dca), rate, admin);
+        vm.prank(admin);
+        staking.setGauge(gauge);
+
+        // Mock token listing check
+        bytes4 IS_TOKEN_LISTED = bytes4(keccak256("isTokenListed(address)"));
+        vm.mockCall(gauge, abi.encodeWithSelector(IS_TOKEN_LISTED, tokenA), abi.encode(true));
+    }
+
+    function test_PreventsFlashLoanAttackWithConstructorDeposit() public {
+        // Verify that the constructor deposit prevents the flash loan attack
+        // by ensuring totalStakedAmount is never 0
+        assertEq(staking.totalStakedAmount(), 1, "totalStakedAmount should be 1 from constructor");
+        
+        // Record the lastMinted timestamp after construction
+        uint256 lastMintedAtConstruction = staking.lastMinted();
+        
+        // Simulate time passing (e.g., 1 day after deployment)
+        vm.warp(block.timestamp + 1 days);
+        
+        // Simulate attacker with flash loan
+        uint256 flashLoanAmount = 100e18;
+        dca.mint(attacker, flashLoanAmount);
+        vm.prank(attacker);
+        dca.approve(address(staking), flashLoanAmount);
+        
+        // Attacker stakes the flash loan amount
+        vm.prank(attacker);
+        staking.stake(tokenA, flashLoanAmount);
+        
+        // Due to the fix, lastMinted should have been updated during the stake
+        // because totalStakedAmount was 1 (not 0)
+        // This means the attacker cannot exploit the time between deployment and stake
+        
+        // Trigger reward accrual via gauge
+        vm.prank(gauge);
+        uint256 rewardAmount = staking.accrueReward(tokenA);
+        
+        // Calculate expected reward (should only be for the time the attacker was staked, which is 0)
+        // Since we're in the same block, elapsed time is 0
+        assertEq(rewardAmount, 0, "Should not accrue rewards in same block");
+        
+        // Now let's test with time passing after the stake
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(gauge);
+        uint256 rewardAmount2 = staking.accrueReward(tokenA);
+        
+        // Expected reward calculation:
+        // Total staked = 100e18 + 1 (constructor deposit)
+        // Time elapsed = 1 hour = 3600 seconds
+        // Mint amount = 3600 * 100 = 360000
+        // Expected reward for tokenA = (100e18 * mintAmount * 1e18 / (100e18 + 1)) / 1e18
+        // This should be approximately 360000 (slightly less due to the +1)
+        uint256 expectedReward = (flashLoanAmount * 3600 * rate) / (flashLoanAmount + 1);
+        
+        // The reward should be close to expectedReward, not inflated by 1 day worth of rewards
+        assertLt(rewardAmount2, expectedReward + 1000, "Reward should not include time before stake");
+        assertGt(rewardAmount2, expectedReward - 1000, "Reward should be approximately correct");
+    }
+    
+    function test_ConstructorDepositsOneToken() public view {
+        // Verify the constructor deposited exactly 1 token
+        assertEq(staking.totalStakedAmount(), 1);
+        assertEq(dca.balanceOf(address(staking)), 1);
+    }
+    
+    function test_UpdateRewardIndexAlwaysExecutesWhenTotalStakedIsNonZero() public {
+        // With the fix, _updateRewardIndex should always execute after construction
+        // because totalStakedAmount starts at 1
+        
+        uint256 initialLastMinted = staking.lastMinted();
+        
+        // Warp time forward
+        vm.warp(block.timestamp + 1 hours);
+        
+        // Mint tokens for a user
+        address user = makeAddr("User");
+        dca.mint(user, 100e18);
+        vm.prank(user);
+        dca.approve(address(staking), 100e18);
+        
+        // User stakes - this should trigger _updateRewardIndex
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        // Verify lastMinted was updated
+        uint256 updatedLastMinted = staking.lastMinted();
+        assertEq(updatedLastMinted, block.timestamp, "lastMinted should be updated to current timestamp");
+        assertGt(updatedLastMinted, initialLastMinted, "lastMinted should have advanced");
     }
 }

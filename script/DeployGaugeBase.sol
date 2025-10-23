@@ -105,6 +105,8 @@ abstract contract DeployGaugeBase is Script {
         _log("Deployed Hook:", address(hook));
 
         // Deploy staking (owned by deployer) and listing (admin = deployer, expected hook = deployed hook)
+        // NOTE: Deployer must have 1 DCA token and approve the future staking contract address before deployment
+        // to satisfy the constructor deposit requirement for flash loan attack prevention
         staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, deployerAddress);
         listing = new SuperDCAListing(
             DCA_TOKEN,

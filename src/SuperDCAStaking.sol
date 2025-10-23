@@ -136,6 +136,8 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
      * @notice Initializes the SuperDCAStaking contract with core configuration.
      * @dev Sets up the contract with the SuperDCA token address and initial mint rate.
      *      The lastMinted timestamp is set to current block time to start reward accrual.
+     *      Deposits 1 DCA token from deployer to prevent flash loan attacks by ensuring
+     *      totalStakedAmount is never 0.
      * @param _superDCAToken The ERC20 SuperDCA token address used for staking operations.
      * @param _mintRate The initial mint rate in tokens per second for reward calculations.
      * @param _owner The address that will own this contract and can perform admin functions.
@@ -145,6 +147,12 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         DCA_TOKEN = _superDCAToken;
         mintRate = _mintRate;
         lastMinted = block.timestamp;
+        
+        // Transfer 1 DCA token from deployer to prevent flash loan attacks
+        // This ensures totalStakedAmount is never 0, preventing the vulnerability
+        // where _updateRewardIndex() skips updating lastMinted on first stake
+        IERC20(_superDCAToken).transferFrom(msg.sender, address(this), 1);
+        totalStakedAmount = 1;
     }
 
     /**
