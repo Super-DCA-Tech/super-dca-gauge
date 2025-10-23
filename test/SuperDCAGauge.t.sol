@@ -57,14 +57,14 @@ contract SuperDCAGaugeTest is Test, Deployers {
                 currency0: Currency.wrap(tokenA),
                 currency1: Currency.wrap(tokenB),
                 fee: fee,
-                tickSpacing: 60, // hardcoded tick spacing used everywhere
+                tickSpacing: 10, // Required tick spacing to prevent duplicate pools
                 hooks: IHooks(hook)
             })
             : PoolKey({
                 currency0: Currency.wrap(tokenB),
                 currency1: Currency.wrap(tokenA),
                 fee: fee,
-                tickSpacing: 60,
+                tickSpacing: 10,
                 hooks: IHooks(hook)
             });
     }
@@ -76,8 +76,8 @@ contract SuperDCAGaugeTest is Test, Deployers {
         returns (IPoolManager.ModifyLiquidityParams memory)
     {
         return IPoolManager.ModifyLiquidityParams({
-            tickLower: TickMath.minUsableTick(60),
-            tickUpper: TickMath.maxUsableTick(60),
+            tickLower: TickMath.minUsableTick(10),
+            tickUpper: TickMath.maxUsableTick(10),
             liquidityDelta: liquidityDelta,
             salt: bytes32(0)
         });
