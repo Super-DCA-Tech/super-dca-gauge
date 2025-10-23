@@ -220,6 +220,37 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
         vm.expectRevert();
         manager.initialize(wrongTokenKey, SQRT_PRICE_1_1);
     }
+
+    function test_beforeInitialize_revert_invalidTickSpacing() public {
+        // Create a pool key with invalid tickSpacing (not 10)
+        // This test verifies that attackers cannot create duplicate pools with different tickSpacing
+        PoolKey memory invalidTickSpacingKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60, // Invalid - must be 10
+            hooks: IHooks(hook)
+        });
+        
+        // Expect revert with InvalidTickSpacing error
+        vm.expectRevert();
+        manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_invalidTickSpacing_negative() public {
+        // Test with another invalid tickSpacing value
+        PoolKey memory invalidTickSpacingKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 1, // Invalid - must be 10
+            hooks: IHooks(hook)
+        });
+        
+        // Expect revert with InvalidTickSpacing error
+        vm.expectRevert();
+        manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
+    }
 }
 
 contract AfterInitializeTest is SuperDCAGaugeTest {
