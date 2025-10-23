@@ -91,7 +91,7 @@ contract CreateDCATokenPool is Script {
             currency0: Currency.wrap(TOKEN_ADDRESS),
             currency1: Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 10,
+            tickSpacing: 60,
             hooks: IHooks(hook)
         });
 

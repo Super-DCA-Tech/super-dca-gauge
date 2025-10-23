@@ -57,7 +57,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
                 currency0: Currency.wrap(tokenA),
                 currency1: Currency.wrap(tokenB),
                 fee: fee,
-                tickSpacing: 60, // hardcoded tick spacing used everywhere
+                tickSpacing: 60, // Required tick spacing to prevent duplicate pools
                 hooks: IHooks(hook)
             })
             : PoolKey({
@@ -219,6 +219,37 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
         // TODO: Handle verify WrappedErrors
         vm.expectRevert();
         manager.initialize(wrongTokenKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_invalidTickSpacing() public {
+        // Create a pool key with invalid tickSpacing (not 60)
+        // This test verifies that attackers cannot create duplicate pools with different tickSpacing
+        PoolKey memory invalidTickSpacingKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 10, // Invalid - must be 60
+            hooks: IHooks(hook)
+        });
+        
+        // Expect revert with InvalidTickSpacing error
+        vm.expectRevert();
+        manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_invalidTickSpacing_negative() public {
+        // Test with another invalid tickSpacing value
+        PoolKey memory invalidTickSpacingKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 1, // Invalid - must be 60
+            hooks: IHooks(hook)
+        });
+        
+        // Expect revert with InvalidTickSpacing error
+        vm.expectRevert();
+        manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
     }
 }
 
