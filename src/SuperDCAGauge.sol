@@ -54,7 +54,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
     uint24 public constant KEEPER_POOL_FEE = 1000; // 0.10%
     uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
-    int24 public constant REQUIRED_TICK_SPACING = 10; // Required tick spacing to prevent duplicate pools
+    int24 public constant REQUIRED_TICK_SPACING = 1; // Required tick spacing to prevent duplicate pools
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -278,7 +278,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @notice Validates that pools using this hook include the SuperDCA token and have the required tick spacing.
      * @dev Called before pool initialization to ensure only valid DCA pools use this hook.
      *      Prevents misconfiguration by requiring one currency to be the SuperDCA token.
-     *      Also restricts tick spacing to exactly 10 to prevent duplicate pools with different tick spacing values.
+     *      Also restricts tick spacing to exactly 1 to prevent duplicate pools with different tick spacing values.
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */

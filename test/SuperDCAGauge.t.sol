@@ -57,14 +57,14 @@ contract SuperDCAGaugeTest is Test, Deployers {
                 currency0: Currency.wrap(tokenA),
                 currency1: Currency.wrap(tokenB),
                 fee: fee,
-                tickSpacing: 10, // Required tick spacing to prevent duplicate pools
+                tickSpacing: 1, // Required tick spacing to prevent duplicate pools
                 hooks: IHooks(hook)
             })
             : PoolKey({
                 currency0: Currency.wrap(tokenB),
                 currency1: Currency.wrap(tokenA),
                 fee: fee,
-                tickSpacing: 10,
+                tickSpacing: 1,
                 hooks: IHooks(hook)
             });
     }
@@ -76,8 +76,8 @@ contract SuperDCAGaugeTest is Test, Deployers {
         returns (IPoolManager.ModifyLiquidityParams memory)
     {
         return IPoolManager.ModifyLiquidityParams({
-            tickLower: TickMath.minUsableTick(10),
-            tickUpper: TickMath.maxUsableTick(10),
+            tickLower: TickMath.minUsableTick(1),
+            tickUpper: TickMath.maxUsableTick(1),
             liquidityDelta: liquidityDelta,
             salt: bytes32(0)
         });
@@ -222,13 +222,13 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
     }
 
     function test_beforeInitialize_revert_invalidTickSpacing() public {
-        // Create a pool key with invalid tickSpacing (not 10)
+        // Create a pool key with invalid tickSpacing (not 1)
         // This test verifies that attackers cannot create duplicate pools with different tickSpacing
         PoolKey memory invalidTickSpacingKey = PoolKey({
             currency0: Currency.wrap(address(weth)),
             currency1: Currency.wrap(address(dcaToken)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 60, // Invalid - must be 10
+            tickSpacing: 60, // Invalid - must be 1
             hooks: IHooks(hook)
         });
         
@@ -243,7 +243,7 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
             currency0: Currency.wrap(address(weth)),
             currency1: Currency.wrap(address(dcaToken)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 1, // Invalid - must be 10
+            tickSpacing: 10, // Invalid - must be 1
             hooks: IHooks(hook)
         });
         

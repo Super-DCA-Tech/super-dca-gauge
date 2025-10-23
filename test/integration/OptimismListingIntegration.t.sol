@@ -21,7 +21,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
     function testFork_ListToken_Success() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
@@ -41,7 +41,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
     function testFork_ListToken_InsufficientLiquidity() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         // Create a position with insufficient DCA liquidity
         uint256 dcaAmount = 500e18; // Below minimum liquidity (1000e18)
@@ -68,7 +68,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
             currency0: Currency.wrap(WETH),
             currency1: Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: int24(10),
+            tickSpacing: int24(1),
             hooks: IHooks(wrongHookAddress) // Valid V4 hook address but wrong for our system
         });
 
@@ -85,7 +85,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
     function testFork_ListToken_AlreadyListed() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         // Create and list first position
         uint256 nftId1 = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
@@ -159,7 +159,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
     function testFork_CollectFees_Success() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         // Create and list position
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
@@ -227,7 +227,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         uint160 sqrtPriceX96 = _getCurrentPrice();
 
         // Create WETH pool
-        (PoolKey memory wethKey,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory wethKey,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
         uint256 wethNftId = _createFullRangePosition(wethKey, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         // Deploy a proper mock ERC20 for second token
@@ -238,7 +238,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         mockToken.mint(address(this), 10000e18);
 
         // Create mock token pool
-        (PoolKey memory mockKey,) = _createTestPool(mockTokenAddress, int24(10), sqrtPriceX96);
+        (PoolKey memory mockKey,) = _createTestPool(mockTokenAddress, int24(1), sqrtPriceX96);
         uint256 mockNftId = _createFullRangePosition(mockKey, 100e18, 2000e18, address(this));
 
         // ---- Act ----

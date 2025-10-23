@@ -22,7 +22,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         uint160 sqrtPriceX96 = _getCurrentPrice();
 
         // ---- Act ----
-        (PoolKey memory key, PoolId poolId) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key, PoolId poolId) = _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         // ---- Assert ----
         // Pool should be initialized successfully
@@ -62,7 +62,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
             currency0: currency0,
             currency1: currency1,
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: int24(10),
+            tickSpacing: int24(1),
             hooks: IHooks(address(gauge))
         });
 
@@ -77,7 +77,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
     function testFork_SwapFees_DifferentUserTypes() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        _createTestPool(WETH, int24(10), sqrtPriceX96);
+        _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         // Set up different user types
         address internalUser = makeAddr("internal");
@@ -227,7 +227,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
     function testFork_IsTokenListed_DelegatesToListing() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         // Initially not listed
@@ -246,7 +246,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // ---- Arrange ----
         // Set up listed token and stakes
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
@@ -390,7 +390,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
     function testFork_CompleteWorkflow_ListStakeReward() public {
         // ---- Arrange ----
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(WETH, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(WETH, int24(1), sqrtPriceX96);
 
         // ---- Act ----
         // 1. List token

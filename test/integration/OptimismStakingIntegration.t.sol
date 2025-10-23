@@ -16,7 +16,7 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
     /// @return The pool key created for the token
     function _setupListedToken(address token, uint256 amount0, uint256 amount1) internal returns (PoolKey memory) {
         uint160 sqrtPriceX96 = _getCurrentPrice();
-        (PoolKey memory key,) = _createTestPool(token, int24(10), sqrtPriceX96);
+        (PoolKey memory key,) = _createTestPool(token, int24(1), sqrtPriceX96);
         uint256 nftId = _createFullRangePosition(key, amount0, amount1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
