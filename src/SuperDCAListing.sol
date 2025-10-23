@@ -9,7 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "lib/v4-core/src/libraries/TickMath.sol";
@@ -49,6 +49,7 @@ import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
+    using CurrencyLibrary for Currency;
 
     // ============ Immutable Configuration ============
 
@@ -302,8 +303,8 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         Currency token1 = key.currency1;
 
         // Record token balances before fee collection
-        uint256 balance0Before = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
-        uint256 balance1Before = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
+        uint256 balance0Before = token0.balanceOf(recipient);
+        uint256 balance1Before = token1.balanceOf(recipient);
 
         // Prepare actions: DECREASE_LIQUIDITY (with 0 liquidity) + TAKE_PAIR
         // This collects fees without removing any actual liquidity
@@ -320,8 +321,8 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         POSITION_MANAGER_V4.modifyLiquidities(abi.encode(actions, params), deadline);
 
         // Calculate and emit the collected amounts
-        uint256 balance0After = IERC20(Currency.unwrap(token0)).balanceOf(recipient);
-        uint256 balance1After = IERC20(Currency.unwrap(token1)).balanceOf(recipient);
+        uint256 balance0After = token0.balanceOf(recipient);
+        uint256 balance1After = token1.balanceOf(recipient);
 
         uint256 collectedAmount0 = balance0After - balance0Before;
         uint256 collectedAmount1 = balance1After - balance1Before;
