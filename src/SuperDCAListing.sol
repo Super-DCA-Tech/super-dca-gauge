@@ -287,6 +287,8 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
      * @notice Collects accumulated fees from a listed NFT position and transfers them to a recipient.
      * @dev Only callable by the contract owner. Uses Uniswap V4's DECREASE_LIQUIDITY and TAKE_PAIR
      *      actions with zero liquidity to collect fees without removing position liquidity.
+     *      Supports both ERC20 tokens and native ETH (represented as address(0) in Uniswap V4).
+     *      Uses CurrencyLibrary.balanceOf() which handles native token balance queries correctly.
      * @param nfpId The NFT position ID to collect fees from.
      * @param recipient The address that will receive the collected fees.
      */
