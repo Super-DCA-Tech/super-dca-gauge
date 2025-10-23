@@ -629,7 +629,7 @@ contract CollectFees is SuperDCAListingTest {
 
         // Mint position with native ETH and list
         address owner = address(this);
-        uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2 ether, 2_000e18, owner);
+        uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
         
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         listing.list(nfpId, nativeKey);
@@ -669,7 +669,7 @@ contract CollectFees is SuperDCAListingTest {
 
         // Mint position with native ETH and list
         address owner = address(this);
-        uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2 ether, 2_000e18, owner);
+        uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
         
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         listing.list(nfpId, nativeKey);
