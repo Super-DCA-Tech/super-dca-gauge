@@ -193,6 +193,21 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         emit RewardIndexUpdated(rewardIndex);
     }
 
+    /**
+     * @notice Accumulates pending rewards for a token bucket before updating its last reward index.
+     * @dev This ensures rewards are not lost when stake/unstake operations occur before accrueReward.
+     * @param info The token reward info storage reference to update.
+     */
+    function _accumulatePendingRewards(TokenRewardInfo storage info) internal {
+        // Only accumulate if there are staked tokens and a delta exists
+        if (info.stakedAmount > 0) {
+            uint256 delta = rewardIndex - info.lastRewardIndex;
+            if (delta > 0) {
+                info.pendingReward += Math.mulDiv(info.stakedAmount, delta, 1e18);
+            }
+        }
+    }
+
     // ============ User Staking Functions ============
 
     /**
@@ -219,12 +234,7 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
         
         // Accumulate pending rewards before updating lastRewardIndex
-        if (info.stakedAmount > 0) {
-            uint256 delta = rewardIndex - info.lastRewardIndex;
-            if (delta > 0) {
-                info.pendingReward += Math.mulDiv(info.stakedAmount, delta, 1e18);
-            }
-        }
+        _accumulatePendingRewards(info);
         
         info.stakedAmount += amount;
         info.lastRewardIndex = rewardIndex;
@@ -256,12 +266,7 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         _updateRewardIndex();
 
         // Accumulate pending rewards before updating lastRewardIndex
-        if (info.stakedAmount > 0) {
-            uint256 delta = rewardIndex - info.lastRewardIndex;
-            if (delta > 0) {
-                info.pendingReward += Math.mulDiv(info.stakedAmount, delta, 1e18);
-            }
-        }
+        _accumulatePendingRewards(info);
 
         // Update token bucket accounting and user stakes
         info.stakedAmount -= amount;
