@@ -617,7 +617,7 @@ contract CollectFees is SuperDCAListingTest {
             currency0: CurrencyLibrary.ADDRESS_ZERO,
             currency1: Currency.wrap(address(dcaToken)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 60,
+            tickSpacing: 1,
             hooks: IHooks(address(0))
         });
 
@@ -657,7 +657,7 @@ contract CollectFees is SuperDCAListingTest {
             currency0: CurrencyLibrary.ADDRESS_ZERO,
             currency1: Currency.wrap(address(dcaToken)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 60,
+            tickSpacing: 1,
             hooks: IHooks(address(0))
         });
 
