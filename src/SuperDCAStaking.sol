@@ -177,19 +177,25 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
     /**
      * @notice Updates the global reward index based on elapsed time and total staked amount.
      * @dev The 1e18 scaling factor provides mathematical precision for fractional rewards.
+     *      When totalStakedAmount is 0, still advances lastMinted to prevent banking empty time.
      */
     function _updateRewardIndex() internal {
-        // Return early if no stakes exist or no time has passed
-        if (totalStakedAmount == 0) return;
-        uint256 elapsed = block.timestamp - lastMinted;
+        uint256 current = block.timestamp;
+        uint256 elapsed = current - lastMinted;
         if (elapsed == 0) return;
+
+        if (totalStakedAmount == 0) {
+            // Move the clock forward during empty periods
+            lastMinted = current;
+            return;
+        }
 
         // Calculate mint amount based on elapsed time and mint rate
         uint256 mintAmount = elapsed * mintRate;
 
         // Update global index: previous_index + (mint_amount * 1e18 / total_staked)
         rewardIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
-        lastMinted = block.timestamp;
+        lastMinted = current;
         emit RewardIndexUpdated(rewardIndex);
     }
 

@@ -345,3 +345,149 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         assertEq(lastIndex, staking.rewardIndex());
     }
 }
+
+contract FirstDepositorFlashLoanVulnerability is SuperDCAStakingTest {
+    /**
+     * @notice Tests that the fix prevents the flash loan attack by advancing lastMinted during empty periods
+     * @dev This simulates the attack path described in M-1:
+     *      1. Time passes after contract deployment
+     *      2. First depositor stakes (when totalStakedAmount == 0)
+     *      3. Depositor triggers accrueReward
+     *      Without the fix, the depositor would claim all rewards from deployment time
+     *      With the fix, lastMinted is advanced when staking, preventing reward banking
+     */
+    function test_FirstStakeAdvancesLastMintedToPreventRewardBanking() public {
+        // Record initial deployment time
+        uint256 deploymentTime = staking.lastMinted();
+        
+        // Simulate time passing after deployment (e.g., 30 days)
+        uint256 timeElapsed = 30 days;
+        vm.warp(block.timestamp + timeElapsed);
+        
+        // Record the time before first stake
+        uint256 timeBeforeStake = block.timestamp;
+        
+        // First user stakes tokens (totalStakedAmount is 0 before this)
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        // Verify lastMinted was advanced during the stake transaction
+        // With the fix, lastMinted should now be at the stake time, not deployment time
+        assertEq(staking.lastMinted(), timeBeforeStake, "lastMinted should advance to current time during first stake");
+        assertGt(staking.lastMinted(), deploymentTime, "lastMinted should be greater than deployment time");
+        
+        // Now simulate a swap that triggers accrueReward (after a short delay)
+        vm.warp(block.timestamp + 1 hours);
+        
+        vm.prank(gauge);
+        uint256 reward = staking.accrueReward(tokenA);
+        
+        // Calculate expected reward: only for the 1 hour since stake, not the 30 days since deployment
+        uint256 expectedReward = 1 hours * rate;
+        
+        // Verify the reward is only for time after stake, not banked time
+        assertEq(reward, expectedReward, "Reward should only accrue from stake time, not deployment time");
+        
+        // Verify the attacker cannot claim 30 days worth of rewards
+        uint256 bankedReward = timeElapsed * rate;
+        assertLt(reward, bankedReward, "Reward should be much less than banked reward from empty period");
+    }
+
+    /**
+     * @notice Tests that multiple empty periods don't accumulate rewards
+     */
+    function test_MultipleEmptyPeriodsDoNotAccumulateRewards() public {
+        uint256 deploymentTime = staking.lastMinted();
+        
+        // First empty period: 10 days
+        vm.warp(block.timestamp + 10 days);
+        
+        // Someone stakes
+        vm.prank(user);
+        staking.stake(tokenA, 50e18);
+        uint256 firstStakeTime = block.timestamp;
+        
+        // They unstake immediately
+        vm.prank(user);
+        staking.unstake(tokenA, 50e18);
+        
+        // Second empty period: 20 days (totalStakedAmount is back to 0)
+        vm.warp(block.timestamp + 20 days);
+        
+        // Another user stakes
+        address user2 = makeAddr("User2");
+        _mintAndApprove(user2, 1000e18);
+        vm.prank(user2);
+        staking.stake(tokenA, 100e18);
+        uint256 secondStakeTime = block.timestamp;
+        
+        // Verify lastMinted was advanced again
+        assertEq(staking.lastMinted(), secondStakeTime, "lastMinted should advance to current time");
+        
+        // Trigger accrual after 1 hour
+        vm.warp(block.timestamp + 1 hours);
+        
+        vm.prank(gauge);
+        uint256 reward = staking.accrueReward(tokenA);
+        
+        // Should only get rewards for 1 hour, not the 30 days of empty time
+        uint256 expectedReward = 1 hours * rate;
+        assertEq(reward, expectedReward, "Should only accrue rewards from second stake time");
+    }
+
+    /**
+     * @notice Tests the exact attack scenario from the issue description
+     * @dev Simulates: deployment -> time passes -> flash loan stake -> trigger accrual -> unstake
+     */
+    function test_FlashLoanAttackScenarioPrevented() public {
+        // Step 1: Contract is deployed (done in setUp)
+        uint256 deploymentTime = staking.lastMinted();
+        
+        // Step 2: Significant time passes (e.g., 90 days)
+        uint256 emptyPeriod = 90 days;
+        vm.warp(block.timestamp + emptyPeriod);
+        
+        // Step 3: Attacker gets flash loan and stakes
+        address attacker = makeAddr("Attacker");
+        uint256 flashLoanAmount = 1000e18;
+        _mintAndApprove(attacker, flashLoanAmount);
+        
+        vm.startPrank(attacker);
+        staking.stake(tokenA, flashLoanAmount);
+        
+        // Step 4: Attacker triggers accrueReward (simulating a swap)
+        vm.stopPrank();
+        vm.prank(gauge);
+        uint256 attackerReward = staking.accrueReward(tokenA);
+        
+        // Step 5: Verify attacker didn't get banked rewards
+        uint256 bankedReward = emptyPeriod * rate;
+        
+        // With the fix, attacker gets 0 reward because no time has passed since their stake
+        assertEq(attackerReward, 0, "Attacker should get 0 reward in same block");
+        assertLt(attackerReward, bankedReward / 100, "Attacker should not get significant portion of banked rewards");
+        
+        // Step 6: Even after waiting a bit, should only get proportional reward
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(gauge);
+        uint256 laterReward = staking.accrueReward(tokenA);
+        
+        uint256 expectedLaterReward = 1 days * rate;
+        assertEq(laterReward, expectedLaterReward, "Should only get 1 day of rewards");
+        assertLt(laterReward, bankedReward / 10, "Should not get majority of 90 days banked rewards");
+    }
+
+    /**
+     * @notice Verifies lastMinted advances even with zero elapsed time initially
+     */
+    function test_LastMintedAdvancesImmediatelyOnFirstStake() public {
+        uint256 deploymentTime = staking.lastMinted();
+        
+        // Stake immediately after deployment (no time warp)
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        // lastMinted should still be current time
+        assertEq(staking.lastMinted(), block.timestamp, "lastMinted should be current time even with no elapsed time");
+    }
+}
