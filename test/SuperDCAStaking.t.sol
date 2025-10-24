@@ -472,7 +472,8 @@ contract FlashLoanAttackPrevention is SuperDCAStakingTest {
         vm.prank(gauge);
         uint256 accrued = staking.accrueReward(tokenA);
         
-        // Expected rewards: 100 seconds * mint rate (100) = 10,000 tokens
+        // Expected rewards calculation: time_period * mint_rate
+        // In this case: 100 seconds * 100 (mint rate) = 10,000 tokens
         uint256 expectedRewards = earnPeriod * rate;
         assertEq(accrued, expectedRewards, "Should accrue rewards for time after stake only");
     }
@@ -490,10 +491,11 @@ contract FlashLoanAttackPrevention is SuperDCAStakingTest {
         
         // Step 2: Attacker takes flash loan and stakes
         address attacker = makeAddr("Attacker");
-        _mintAndApprove(attacker, 100e18);
+        uint256 attackAmount = 100e18; // Flash loan amount
+        _mintAndApprove(attacker, attackAmount);
         
         vm.startPrank(attacker);
-        staking.stake(tokenA, 100e18);
+        staking.stake(tokenA, attackAmount);
         
         // Step 3: Attacker triggers reward accrual (via pool swap)
         vm.stopPrank();
@@ -506,10 +508,10 @@ contract FlashLoanAttackPrevention is SuperDCAStakingTest {
         
         // Step 5: Attacker unstakes to repay flash loan
         vm.prank(attacker);
-        staking.unstake(tokenA, 100e18);
+        staking.unstake(tokenA, attackAmount);
         
         // Verify the attacker gained nothing from the attack
-        assertEq(dca.balanceOf(attacker), 100e18, "Attacker should have only original balance");
+        assertEq(dca.balanceOf(attacker), attackAmount, "Attacker should have only original balance");
     }
 }
 
