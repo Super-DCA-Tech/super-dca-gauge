@@ -413,6 +413,106 @@ contract TotalStaked is SuperDCAStakingTest {
     }
 }
 
+contract FlashLoanAttackPrevention is SuperDCAStakingTest {
+    /**
+     * @notice Tests that the first depositor cannot exploit flash loan attack to harvest banked time.
+     * @dev This test validates the fix for M-1 vulnerability where lastMinted is now updated
+     *      even when totalStakedAmount is 0, preventing "empty time" from being harvested.
+     */
+    function test_FirstDepositorCannotHarvestBankedTime() public {
+        // Record the initial deployment time
+        uint256 deployTime = staking.lastMinted();
+        
+        // Simulate time passing after deployment (e.g., 1000 seconds with no stakes)
+        uint256 emptyPeriod = 1000;
+        vm.warp(deployTime + emptyPeriod);
+        
+        // First user stakes tokens (simulating flash loan borrowing)
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        // Verify that lastMinted was updated during stake, not staying at deployTime
+        assertEq(staking.lastMinted(), deployTime + emptyPeriod, "lastMinted should be updated to current time");
+        
+        // Immediately trigger reward accrual (simulating pool swap in the attack)
+        vm.prank(gauge);
+        uint256 accrued = staking.accrueReward(tokenA);
+        
+        // The accrued rewards should be 0 or very minimal, NOT based on the empty period
+        // Since no time passed between stake and accrual, rewards should be 0
+        assertEq(accrued, 0, "No rewards should accrue from empty period before first stake");
+        
+        // Verify the user cannot harvest rewards from the empty period
+        (uint256 stakedAmount, uint256 lastRewardIndex) = staking.tokenRewardInfos(tokenA);
+        assertEq(stakedAmount, 100e18);
+        assertEq(lastRewardIndex, staking.rewardIndex(), "Token reward index should match global index");
+    }
+    
+    /**
+     * @notice Tests that rewards accrue correctly after the first stake.
+     * @dev Validates that the fix doesn't break normal reward accrual.
+     */
+    function test_NormalRewardAccrualAfterFirstStake() public {
+        uint256 deployTime = staking.lastMinted();
+        
+        // Time passes with no stakes
+        vm.warp(deployTime + 1000);
+        
+        // First user stakes
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        uint256 stakeTime = block.timestamp;
+        
+        // Time passes after staking
+        uint256 earnPeriod = 100; // 100 seconds
+        vm.warp(stakeTime + earnPeriod);
+        
+        // Accrue rewards
+        vm.prank(gauge);
+        uint256 accrued = staking.accrueReward(tokenA);
+        
+        // Expected rewards: 100 seconds * mint rate (100) = 10,000 tokens
+        uint256 expectedRewards = earnPeriod * rate;
+        assertEq(accrued, expectedRewards, "Should accrue rewards for time after stake only");
+    }
+    
+    /**
+     * @notice Tests the complete flash loan attack scenario.
+     * @dev Simulates the exact attack path described in the issue.
+     */
+    function test_FlashLoanAttackScenarioPrevented() public {
+        uint256 deployTime = staking.lastMinted();
+        
+        // Step 1: Contract is deployed, time passes with no stakes
+        uint256 emptyTime = 5000; // 5000 seconds pass
+        vm.warp(deployTime + emptyTime);
+        
+        // Step 2: Attacker takes flash loan and stakes
+        address attacker = makeAddr("Attacker");
+        _mintAndApprove(attacker, 100e18);
+        
+        vm.startPrank(attacker);
+        staking.stake(tokenA, 100e18);
+        
+        // Step 3: Attacker triggers reward accrual (via pool swap)
+        vm.stopPrank();
+        vm.prank(gauge);
+        uint256 rewards = staking.accrueReward(tokenA);
+        
+        // Step 4: Verify attacker gets NO rewards from the empty period
+        // With the fix, rewards should be 0 because lastMinted was updated during stake
+        assertEq(rewards, 0, "Attacker should get 0 rewards from empty period");
+        
+        // Step 5: Attacker unstakes to repay flash loan
+        vm.prank(attacker);
+        staking.unstake(tokenA, 100e18);
+        
+        // Verify the attacker gained nothing from the attack
+        assertEq(dca.balanceOf(attacker), 100e18, "Attacker should have only original balance");
+    }
+}
+
 contract TokenRewardInfos is SuperDCAStakingTest {
     function test_ReturnsZeroStructInitially() public view {
         (uint256 stakedAmount, uint256 lastIndex) = staking.tokenRewardInfos(tokenA);
