@@ -232,6 +232,35 @@ contract Stake is SuperDCAStakingTest {
         assertEq(dca.balanceOf(user), beforeBal - _amount);
     }
 
+    function test_FirstStakerCannotHarvestBankedTime() public {
+        // Record the initial deployment time
+        uint256 deployTime = staking.lastMinted();
+        
+        // Simulate time passing after deployment (e.g., 1000 seconds with no stakes)
+        uint256 emptyPeriod = 1000;
+        vm.warp(deployTime + emptyPeriod);
+        
+        // First user stakes tokens (simulating flash loan borrowing)
+        vm.prank(user);
+        staking.stake(tokenA, 100e18);
+        
+        // Verify that lastMinted was updated during stake, not staying at deployTime
+        assertEq(staking.lastMinted(), deployTime + emptyPeriod, "lastMinted should be updated to current time");
+        
+        // Immediately trigger reward accrual (simulating pool swap in the attack)
+        vm.prank(gauge);
+        uint256 accrued = staking.accrueReward(tokenA);
+        
+        // The accrued rewards should be 0 or very minimal, NOT based on the empty period
+        // Since no time passed between stake and accrual, rewards should be 0
+        assertEq(accrued, 0, "No rewards should accrue from empty period before first stake");
+        
+        // Verify the user cannot harvest rewards from the empty period
+        (uint256 stakedAmount, uint256 lastRewardIndex) = staking.tokenRewardInfos(tokenA);
+        assertEq(stakedAmount, 100e18);
+        assertEq(lastRewardIndex, staking.rewardIndex(), "Token reward index should match global index");
+    }
+
     function testFuzz_EmitsStakedEvent(uint256 _amount) public {
         _amount = bound(_amount, 1, dca.balanceOf(user));
         vm.prank(user);
