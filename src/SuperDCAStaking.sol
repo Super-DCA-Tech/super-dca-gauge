@@ -185,7 +185,7 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         if (elapsed == 0) return;
 
         if (totalStakedAmount == 0) {
-            // Move the clock forward during empty periods
+            // Advance lastMinted to prevent banking of empty time periods and close flash loan attack vector
             lastMinted = current;
             return;
         }

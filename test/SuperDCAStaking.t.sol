@@ -474,7 +474,9 @@ contract FirstDepositorFlashLoanVulnerability is SuperDCAStakingTest {
         
         uint256 expectedLaterReward = 1 days * rate;
         assertEq(laterReward, expectedLaterReward, "Should only get 1 day of rewards");
-        assertLt(laterReward, bankedReward / 10, "Should not get majority of 90 days banked rewards");
+        // Verify attacker doesn't get majority of banked rewards (90 days >> 1 day)
+        uint256 attackProtectionThreshold = bankedReward / 10; // 9 days worth
+        assertLt(laterReward, attackProtectionThreshold, "Should not get majority of 90 days banked rewards");
     }
 
     /**
