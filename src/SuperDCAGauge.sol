@@ -304,7 +304,14 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */
-    function _afterInitialize(address, /* sender */ PoolKey calldata key, uint160, /* sqrtPriceX96 */ int24 /* tick */ )
+    function _afterInitialize(
+        address,
+        /* sender */
+        PoolKey calldata key,
+        uint160,
+        /* sqrtPriceX96 */
+        int24 /* tick */
+    )
         internal
         pure
         override
@@ -426,10 +433,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      */
     function _beforeSwap(
         address sender,
-        PoolKey calldata, /* key */
+        PoolKey calldata key,
         IPoolManager.SwapParams calldata, /* params */
-        bytes calldata /* hookData */
-    ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
+        bytes calldata hookData
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         // Get the actual message sender (may differ from 'sender' when using routers)
         address swapper = IMsgSender(sender).msgSender();
         uint24 fee;
@@ -440,6 +447,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         } else if (swapper == keeper) {
             fee = keeperFee; // Typically 0.10% for keeper
         } else {
+            _handleDistributionAndSettlement(key, hookData);
             fee = externalFee; // Typically 0.50% for external users
         }
 
