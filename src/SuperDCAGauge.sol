@@ -304,14 +304,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */
-    function _afterInitialize(
-        address,
-        /* sender */
-        PoolKey calldata key,
-        uint160,
-        /* sqrtPriceX96 */
-        int24 /* tick */
-    )
+    function _afterInitialize(address, /* sender */ PoolKey calldata key, uint160, /* sqrtPriceX96 */ int24 /* tick */ )
         internal
         pure
         override
@@ -378,7 +371,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
             poolManager.settle();
         }
 
-        /// @dev: At this point, there are DCA tokens left in the hook for the other pools.
+        /// @dev At this point, there are DCA tokens left in the hook for the other pools.
     }
 
     /**
