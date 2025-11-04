@@ -317,6 +317,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *
      *      If no pool liquidity exists, all rewards go to developer to prevent
      *      donation failures. Minting failures are handled gracefully to prevent DoS.
+     *      
+     *      This function is now called from beforeSwap, so it's critical that failures
+     *      don't prevent swaps from executing. All external calls are wrapped in try-catch
+     *      or conditional logic to ensure swap operations remain functional.
      * @param key The pool key identifying the Uniswap V4 pool.
      * @param hookData Additional data passed to the hook for donation operations.
      */
@@ -352,15 +356,21 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         // Mint community share and donate to pool only if mint succeeds
         // This prevents donation of tokens that don't exist
         if (_tryMint(address(poolManager), communityShare)) {
-            // Donate community share to pool
-            if (superDCAToken == Currency.unwrap(key.currency0)) {
-                IPoolManager(msg.sender).donate(key, communityShare, 0, hookData);
-            } else {
-                IPoolManager(msg.sender).donate(key, 0, communityShare, hookData);
+            // Wrap donate and settle in try-catch to prevent swap failures
+            // If donation fails, the minted tokens remain in the pool manager
+            try IPoolManager(msg.sender).donate(
+                key,
+                superDCAToken == Currency.unwrap(key.currency0) ? communityShare : 0,
+                superDCAToken == Currency.unwrap(key.currency1) ? communityShare : 0,
+                hookData
+            ) {
+                // Settle the donation to complete the transaction
+                // If settle fails, donation is reverted but swap continues
+                try poolManager.settle() {} catch {}
+            } catch {
+                // Donation failed, but swap should continue
+                // Tokens remain in the pool manager and can be recovered
             }
-
-            // Settle the donation to complete the transaction
-            poolManager.settle();
         }
 
         /// @dev: At this point, there are DCA tokens left in the hook for the other pools.

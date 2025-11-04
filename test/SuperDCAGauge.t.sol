@@ -507,7 +507,7 @@ contract RewardsTest is SuperDCAGaugeTest {
         assertEq(staking.lastMinted(), startTime + elapsed, "Last minted time should be updated");
     }
 
-    function test_reward_distribution_no_liquidity() public {
+    function test_reward_distribution_with_subsequent_liquidity_removal() public {
         // Setup: Stake tokens
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
@@ -520,16 +520,17 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Add liquidity
+        // Add liquidity to the pool
         _modifyLiquidity(key, 1e18);
 
-        // Trigger distribution via swap (pool now has liquidity)
+        // Trigger distribution via swap while pool has liquidity
+        // Developer gets 50% because pool has liquidity at distribution time
         _swap(key, true, 1e16);
 
-        // Remove liquidity
+        // Remove liquidity after distribution
         _modifyLiquidity(key, -1e18);
 
-        // Developer should receive their share from the swap distribution
+        // Developer should receive their 50% share from the swap distribution
         uint256 expectedDevShare = (elapsed * mintRate) / 2; // 20 * 100 / 2 = 1000
 
         // Verify rewards
