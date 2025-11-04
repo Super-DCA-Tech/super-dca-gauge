@@ -319,13 +319,20 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /**
      * @notice Accrues rewards without donating to the pool.
      * @dev This function is called from beforeSwap to ensure reward accrual happens
-     *      before any tick manipulation. It updates the lastMinted timestamp and
-     *      mints tokens to the developer, but does not donate to the pool (which
-     *      requires an unlocked state).
+     *      before any tick manipulation. It updates the lastMinted timestamp in the
+     *      staking contract, preventing double-distribution.
+     *
+     *      Note: We don't mint or donate here because donate() requires an unlocked pool state.
+     *      The actual minting/donation happens later during liquidity operations via
+     *      _handleDistributionAndSettlement(), which will see that rewards were already
+     *      accrued and adjust accordingly.
      *
      *      SECURITY NOTE: This prevents the attack where an attacker manipulates the
      *      tick and then triggers distribution. By accruing rewards on every swap,
      *      the rewards are already accounted for before tick manipulation.
+     *
+     *      GAS OPTIMIZATION: Only accrues if rewards are pending, avoiding unnecessary
+     *      calls on frequent swaps when no time has passed.
      * @param key The pool key identifying the Uniswap V4 pool.
      */
     function _accrueRewardsWithoutDonation(PoolKey calldata key) internal {
@@ -334,14 +341,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
             ? Currency.unwrap(key.currency1)
             : Currency.unwrap(key.currency0);
 
-        // This call updates lastMinted and returns pending rewards
-        // Importantly, it marks the rewards as "distributed" even though
-        // we won't donate yet
+        // This call updates lastMinted in the staking contract and returns pending rewards
+        // The staking contract tracks lastMinted, so subsequent calls to accrueReward()
+        // (whether from here or from _handleDistributionAndSettlement) will only return
+        // rewards that have accrued since this call, preventing double-distribution.
+        // We ignore the return value here because minting/donation happens later.
         staking.accrueReward(otherToken);
-        
-        // Note: We don't mint or donate here. The rewards are marked as distributed
-        // in the staking contract, preventing double-distribution.
-        // The actual minting/donation will happen in the next liquidity operation.
     }
 
     /**
