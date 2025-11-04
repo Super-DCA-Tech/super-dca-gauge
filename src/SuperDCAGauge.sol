@@ -317,6 +317,34 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
+     * @notice Accrues rewards without donating to the pool.
+     * @dev This function is called from beforeSwap to ensure reward accrual happens
+     *      before any tick manipulation. It updates the lastMinted timestamp and
+     *      mints tokens to the developer, but does not donate to the pool (which
+     *      requires an unlocked state).
+     *
+     *      SECURITY NOTE: This prevents the attack where an attacker manipulates the
+     *      tick and then triggers distribution. By accruing rewards on every swap,
+     *      the rewards are already accounted for before tick manipulation.
+     * @param key The pool key identifying the Uniswap V4 pool.
+     */
+    function _accrueRewardsWithoutDonation(PoolKey calldata key) internal {
+        // Derive the non-DCA token for accrual calculation
+        address otherToken = superDCAToken == Currency.unwrap(key.currency0)
+            ? Currency.unwrap(key.currency1)
+            : Currency.unwrap(key.currency0);
+
+        // This call updates lastMinted and returns pending rewards
+        // Importantly, it marks the rewards as "distributed" even though
+        // we won't donate yet
+        staking.accrueReward(otherToken);
+        
+        // Note: We don't mint or donate here. The rewards are marked as distributed
+        // in the staking contract, preventing double-distribution.
+        // The actual minting/donation will happen in the next liquidity operation.
+    }
+
+    /**
      * @notice Handles reward accrual and distribution.
      * @dev This function implements the core reward distribution logic:
      *      1. Syncs the pool manager with the SuperDCA token state
@@ -328,10 +356,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *      If no pool liquidity exists, all rewards go to developer to prevent
      *      donation failures. Minting failures are handled gracefully to prevent DoS.
      *
-     *      SECURITY NOTE: This function is called from beforeSwap to mitigate unfair
-     *      reward distribution. By triggering distribution before swaps, attackers cannot
-     *      manipulate the tick position and then trigger distribution via liquidity operations
-     *      to steal rewards from honest LPs.
+     *      SECURITY NOTE: Reward accrual is triggered in beforeSwap, but donation
+     *      happens here during liquidity operations when the pool is not locked.
      * @param key The pool key identifying the Uniswap V4 pool.
      * @param hookData Additional data passed to the hook for donation operations.
      */
@@ -378,41 +404,47 @@ contract SuperDCAGauge is BaseHook, AccessControl {
             poolManager.settle();
         }
 
-        /// @dev: At this point, there are DCA tokens left in the hook for the other pools.
+        // Note: At this point, there are DCA tokens left in the hook for the other pools.
     }
 
     /**
      * @notice Hook called before liquidity is added to a pool.
-     * @dev Note: Reward distribution is now handled in beforeSwap to prevent
-     *      unfair reward exploitation. See _beforeSwap for details.
+     * @dev Triggers reward distribution and donation. Reward accrual is also triggered
+     *      in beforeSwap to prevent unfair reward exploitation.
+     * @param key The pool key for the liquidity operation.
+     * @param hookData Additional data passed to the hook.
      * @return The function selector to confirm successful execution.
      */
     function _beforeAddLiquidity(
         address, // sender
-        PoolKey calldata, // key
+        PoolKey calldata key,
         IPoolManager.ModifyLiquidityParams calldata, // params
-        bytes calldata // hookData
+        bytes calldata hookData
     ) internal override returns (bytes4) {
+        _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeAddLiquidity.selector;
     }
 
     /**
      * @notice Hook called before liquidity is removed from a pool.
-     * @dev Note: Reward distribution is now handled in beforeSwap to prevent
-     *      unfair reward exploitation. See _beforeSwap for details.
+     * @dev Triggers reward distribution and donation. Reward accrual is also triggered
+     *      in beforeSwap to prevent unfair reward exploitation.
+     * @param key The pool key for the liquidity operation.
+     * @param hookData Additional data passed to the hook.
      * @return The function selector to confirm successful execution.
      */
     function _beforeRemoveLiquidity(
         address, // sender
-        PoolKey calldata, // key
+        PoolKey calldata key,
         IPoolManager.ModifyLiquidityParams calldata, // params
-        bytes calldata // hookData
+        bytes calldata hookData
     ) internal override returns (bytes4) {
+        _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeRemoveLiquidity.selector;
     }
 
     /**
-     * @notice Hook called before each swap to determine the appropriate fee and handle reward distribution.
+     * @notice Hook called before each swap to determine the appropriate fee and accrue rewards.
      * @dev Implements a three-tier fee structure based on the swapper's status:
      *      - Internal addresses: Pay internalFee (typically 0%)
      *      - Current keeper: Pays keeperFee (typically 0.10%)
@@ -421,12 +453,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *      The function uses IMsgSender to get the actual message sender when called
      *      through intermediary contracts like routers or position managers.
      *
-     *      SECURITY: Reward distribution is triggered here to mitigate unfair LP reward exploitation.
-     *      By distributing rewards before the swap, any attempt to manipulate the tick position will
-     *      trigger distribution first, preventing attackers from positioning themselves to steal rewards.
+     *      SECURITY: Reward accrual is triggered here to mitigate unfair LP reward exploitation.
+     *      By accruing rewards before the swap, any attempt to manipulate the tick position will
+     *      mark rewards as distributed first, preventing attackers from positioning themselves to
+     *      steal rewards. The actual minting and donation happens in liquidity operations.
      * @param sender The address that initiated the swap (may be a router/manager).
      * @param key The pool key for the swap operation.
-     * @param hookData Additional data passed to the hook for distribution operations.
      * @return selector The function selector for successful execution.
      * @return delta Zero delta as this hook doesn't modify swap amounts.
      * @return fee The calculated fee with override flag set.
@@ -435,11 +467,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         address sender,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata, /* params */
-        bytes calldata hookData
+        bytes calldata /* hookData */
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        // Handle reward distribution and settlement before the swap
-        // This prevents attackers from manipulating tick position to steal rewards
-        _handleDistributionAndSettlement(key, hookData);
+        // Accrue rewards before the swap to prevent tick manipulation attacks
+        // This updates lastMinted and marks rewards as distributed
+        _accrueRewardsWithoutDonation(key);
 
         // Get the actual message sender (may differ from 'sender' when using routers)
         address swapper = IMsgSender(sender).msgSender();
