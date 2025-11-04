@@ -316,7 +316,8 @@ contract OptimismIntegrationBase is Test {
             )
         );
 
-        plan = plan.add(Actions.SETTLE_PAIR, abi.encode(key.currency0, key.currency1));
+        plan = plan.add(Actions.CLOSE_CURRENCY, abi.encode(key.currency0));
+        plan = plan.add(Actions.CLOSE_CURRENCY, abi.encode(key.currency1));
 
         // Execute the plan
         bytes memory data = plan.encode();

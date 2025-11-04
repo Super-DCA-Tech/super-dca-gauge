@@ -11,6 +11,8 @@ import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol"
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
 import {Planner, Plan} from "lib/v4-periphery/test/shared/Planner.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import {FixedPoint96} from "@uniswap/v4-core/src/libraries/FixedPoint96.sol";
 
 /// @notice Fuzz tests to reproduce issues with how sync/settle 
 /// are called in "_handleDistributionAndSettlement" in SuperDCAGauge.sol
@@ -192,6 +194,10 @@ contract LiquidityFuzzIntegration is OptimismIntegrationBase {
 
         vm.startPrank(lp);
 
+        // Record balances before adding liquidity
+        uint256 balanceBefore0 = IERC20(Currency.unwrap(testKey.currency0)).balanceOf(lp);
+        uint256 balanceBefore1 = IERC20(Currency.unwrap(testKey.currency1)).balanceOf(lp);
+
         IERC20(Currency.unwrap(testKey.currency0)).approve(PERMIT2, type(uint256).max);
         IERC20(Currency.unwrap(testKey.currency1)).approve(PERMIT2, type(uint256).max);
 
@@ -204,17 +210,49 @@ contract LiquidityFuzzIntegration is OptimismIntegrationBase {
 
         PositionParams memory params = _calculatePositionParams(testKey, amount0, amount1);
 
+        // Calculate the exact expected amounts for this liquidity
+        // Since we're using the liquidity calculated from the given amounts,
+        // the expected amounts should match closely (within rounding)
+        (uint256 expectedAmount0, uint256 expectedAmount1) = _getAmountsForLiquidity(
+            params.sqrtPriceX96,
+            params.sqrtPriceAX96,
+            params.sqrtPriceBX96,
+            params.liquidity
+        );
+
         Plan memory plan = Planner.init();
         plan = plan.add(
             Actions.INCREASE_LIQUIDITY,
             abi.encode(nftId, params.liquidity, amount0, amount1, bytes(""))
         );
-        plan = plan.add(Actions.SETTLE_PAIR, abi.encode(testKey.currency0, testKey.currency1));
+        plan = plan.add(Actions.CLOSE_CURRENCY, abi.encode(testKey.currency0));
+        plan = plan.add(Actions.CLOSE_CURRENCY, abi.encode(testKey.currency1));
 
         bytes memory data = plan.encode();
         uint256 deadline = block.timestamp + 60;
 
         IPositionManager(POSITION_MANAGER_V4).modifyLiquidities(data, deadline);
+
+        // Record balances after adding liquidity
+        uint256 balanceAfter0 = IERC20(Currency.unwrap(testKey.currency0)).balanceOf(lp);
+        uint256 balanceAfter1 = IERC20(Currency.unwrap(testKey.currency1)).balanceOf(lp);
+
+        // Calculate how much was actually spent
+        uint256 spent0 = balanceBefore0 - balanceAfter0;
+        uint256 spent1 = balanceBefore1 - balanceAfter1;
+
+        // Assert that LP paid for the liquidity (balance decreased, not increased)
+        assertLe(balanceAfter0, balanceBefore0, "LP should have paid currency0 (WETH)");
+        assertLe(balanceAfter1, balanceBefore1, "LP should have paid currency1 (DCA)");
+
+        // Assert that LP spent exactly what was calculated (or got refund for excess)
+        // The spent amount should match the expected amount exactly
+        assertEq(spent0, expectedAmount0, "LP should spend exactly the calculated amount of currency0 (WETH)");
+        assertEq(spent1, expectedAmount1, "LP should spend exactly the calculated amount of currency1 (DCA)");
+
+        // Verify that LP didn't somehow spend more than allocated
+        assertLe(spent0, amount0, "LP should not spend more currency0 than allocated");
+        assertLe(spent1, amount1, "LP should not spend more currency1 (DCA) than allocated");
 
         vm.stopPrank();
     }
@@ -267,6 +305,62 @@ contract LiquidityFuzzIntegration is OptimismIntegrationBase {
 
     function _deterministicRandom(uint256 seed, uint256 nonce) internal pure returns (uint256) {
         return uint256(keccak256(abi.encodePacked(seed, nonce)));
+    }
+
+    /// @notice Calculate token amounts for a given liquidity
+    /// @dev Reverse of getLiquidityForAmounts
+    function _getAmountsForLiquidity(
+        uint160 sqrtPriceX96,
+        uint160 sqrtPriceAX96,
+        uint160 sqrtPriceBX96,
+        uint128 liquidity
+    ) internal pure returns (uint256 amount0, uint256 amount1) {
+        if (sqrtPriceAX96 > sqrtPriceBX96) {
+            (sqrtPriceAX96, sqrtPriceBX96) = (sqrtPriceBX96, sqrtPriceAX96);
+        }
+
+        if (sqrtPriceX96 <= sqrtPriceAX96) {
+            // Current price is below the range, only token0 is needed
+            amount0 = _getAmount0ForLiquidity(sqrtPriceAX96, sqrtPriceBX96, liquidity);
+        } else if (sqrtPriceX96 < sqrtPriceBX96) {
+            // Current price is in range, both tokens are needed
+            amount0 = _getAmount0ForLiquidity(sqrtPriceX96, sqrtPriceBX96, liquidity);
+            amount1 = _getAmount1ForLiquidity(sqrtPriceAX96, sqrtPriceX96, liquidity);
+        } else {
+            // Current price is above the range, only token1 is needed
+            amount1 = _getAmount1ForLiquidity(sqrtPriceAX96, sqrtPriceBX96, liquidity);
+        }
+    }
+
+    /// @notice Calculate amount0 for a given liquidity and price range
+    function _getAmount0ForLiquidity(
+        uint160 sqrtPriceAX96,
+        uint160 sqrtPriceBX96,
+        uint128 liquidity
+    ) internal pure returns (uint256 amount0) {
+        if (sqrtPriceAX96 > sqrtPriceBX96) {
+            (sqrtPriceAX96, sqrtPriceBX96) = (sqrtPriceBX96, sqrtPriceAX96);
+        }
+        
+        // amount0 = liquidity * (sqrtPriceB - sqrtPriceA) / (sqrtPriceB * sqrtPriceA)
+        uint256 numerator1 = uint256(liquidity) << 96;
+        uint256 numerator2 = sqrtPriceBX96 - sqrtPriceAX96;
+        
+        return FullMath.mulDiv(numerator1, numerator2, sqrtPriceBX96) / sqrtPriceAX96;
+    }
+
+    /// @notice Calculate amount1 for a given liquidity and price range
+    function _getAmount1ForLiquidity(
+        uint160 sqrtPriceAX96,
+        uint160 sqrtPriceBX96,
+        uint128 liquidity
+    ) internal pure returns (uint256 amount1) {
+        if (sqrtPriceAX96 > sqrtPriceBX96) {
+            (sqrtPriceAX96, sqrtPriceBX96) = (sqrtPriceBX96, sqrtPriceAX96);
+        }
+        
+        // amount1 = liquidity * (sqrtPriceB - sqrtPriceA)
+        return FullMath.mulDiv(liquidity, sqrtPriceBX96 - sqrtPriceAX96, FixedPoint96.Q96);
     }
 }
 

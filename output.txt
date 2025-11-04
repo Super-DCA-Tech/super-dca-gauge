@@ -1,0 +1,7 @@
+Compiler run failed:
+Error (6160): Wrong argument count for function call: 1 arguments given but expected 0.
+   --> src/SuperDCAGauge.sol:363:13:
+    |
+363 |             poolManager.settle(Currency.wrap(superDCAToken));
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
