@@ -368,60 +368,62 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     /**
      * @notice Hook called before liquidity is added to a pool.
-     * @dev Triggers reward distribution before the liquidity operation to ensure
-     *      accurate reward calculations based on current pool state.
-     * @param key The pool key for the liquidity operation.
-     * @param hookData Additional data passed to the hook.
+     * @dev No longer triggers reward distribution here; distribution is now handled in beforeSwap.
      * @return The function selector to confirm successful execution.
      */
     function _beforeAddLiquidity(
         address, // sender
-        PoolKey calldata key,
+        PoolKey calldata, // key
         IPoolManager.ModifyLiquidityParams calldata, // params
-        bytes calldata hookData
+        bytes calldata // hookData
     ) internal override returns (bytes4) {
-        _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeAddLiquidity.selector;
     }
 
     /**
      * @notice Hook called before liquidity is removed from a pool.
-     * @dev Triggers reward distribution before the liquidity operation to ensure
-     *      rewards are properly allocated before pool state changes.
-     * @param key The pool key for the liquidity operation.
-     * @param hookData Additional data passed to the hook.
+     * @dev No longer triggers reward distribution here; distribution is now handled in beforeSwap.
      * @return The function selector to confirm successful execution.
      */
     function _beforeRemoveLiquidity(
         address, // sender
-        PoolKey calldata key,
+        PoolKey calldata, // key
         IPoolManager.ModifyLiquidityParams calldata, // params
-        bytes calldata hookData
+        bytes calldata // hookData
     ) internal override returns (bytes4) {
-        _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeRemoveLiquidity.selector;
     }
 
     /**
-     * @notice Hook called before each swap to determine the appropriate fee.
-     * @dev Implements a three-tier fee structure based on the swapper's status:
+     * @notice Hook called before each swap to distribute rewards and determine the appropriate fee.
+     * @dev Implements reward distribution before swap to prevent tick manipulation attacks.
+     *      Then implements a three-tier fee structure based on the swapper's status:
      *      - Internal addresses: Pay internalFee (typically 0%)
      *      - Current keeper: Pays keeperFee (typically 0.10%)
      *      - External users: Pay externalFee (typically 0.50%)
      *
      *      The function uses IMsgSender to get the actual message sender when called
      *      through intermediary contracts like routers or position managers.
+     *      
+     *      By triggering distribution in beforeSwap, any attacker attempting to manipulate
+     *      the tick will trigger distribution BEFORE their swap executes, preventing them
+     *      from stealing rewards intended for honest LPs.
      * @param sender The address that initiated the swap (may be a router/manager).
+     * @param key The pool key for the swap operation.
+     * @param hookData Additional data passed to the hook.
      * @return selector The function selector for successful execution.
      * @return delta Zero delta as this hook doesn't modify swap amounts.
      * @return fee The calculated fee with override flag set.
      */
     function _beforeSwap(
         address sender,
-        PoolKey calldata, /* key */
+        PoolKey calldata key,
         IPoolManager.SwapParams calldata, /* params */
-        bytes calldata /* hookData */
-    ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
+        bytes calldata hookData
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        // Trigger reward distribution before the swap to mitigate tick manipulation attacks
+        _handleDistributionAndSettlement(key, hookData);
+        
         // Get the actual message sender (may differ from 'sender' when using routers)
         address swapper = IMsgSender(sender).msgSender();
         uint24 fee;
