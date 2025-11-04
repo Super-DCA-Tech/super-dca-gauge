@@ -293,37 +293,6 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
             dcaToken.balanceOf(developer), initialDevBal, "No rewards should be distributed with zero elapsed time"
         );
     }
-
-    // --------------------------------------------------
-    // Mint failure handling
-    // --------------------------------------------------
-
-    function test_whenMintFails_onAddLiquidity() public {
-        // This test is no longer relevant since distribution doesn't happen on add liquidity
-        // Keeping it as a no-op test to maintain test structure
-        uint256 stakeAmount = 100e18;
-        _stake(address(weth), stakeAmount);
-
-        // Add initial liquidity to create the pool
-        _modifyLiquidity(key, 1e18);
-
-        uint256 startTime = staking.lastMinted();
-        uint256 elapsed = 20;
-        vm.warp(startTime + elapsed);
-
-        // Remove minting permissions from the gauge
-        vm.prank(developer);
-        hook.returnSuperDCATokenOwnership();
-
-        // Adding liquidity should not revert and should not attempt distribution
-        _modifyLiquidity(key, 1e18);
-
-        // Developer balance should remain zero (no distribution attempted)
-        assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero");
-
-        // lastMinted should NOT update since no distribution happens on liquidity ops
-        assertEq(staking.lastMinted(), startTime, "lastMinted should not update on liquidity operations");
-    }
 }
 
 contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
@@ -347,39 +316,6 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         // Verify NO distributions occurred (distribution only happens on swaps now)
         assertEq(dcaToken.balanceOf(developer), initialDevBal, "No distribution should occur on liquidity operations");
         assertEq(staking.lastMinted(), startTime, "Last minted timestamp should not be updated on liquidity ops");
-    }
-
-    // --------------------------------------------------
-    // Mint failure handling
-    // --------------------------------------------------
-
-    function test_whenMintFails_onRemoveLiquidity() public {
-        // This test is no longer relevant since distribution doesn't happen on remove liquidity
-        // Keeping it as a no-op test to maintain test structure
-        uint256 stakeAmount = 100e18;
-        _stake(address(weth), stakeAmount);
-        _modifyLiquidity(key, 1e18);
-
-        uint256 startTime = staking.lastMinted();
-        uint256 elapsed = 20;
-        vm.warp(startTime + elapsed);
-
-        uint256 devBalanceBefore = dcaToken.balanceOf(developer);
-
-        // Remove minting permissions
-        vm.prank(developer);
-        hook.returnSuperDCATokenOwnership();
-
-        // Removing liquidity should not revert and should not attempt distribution
-        _modifyLiquidity(key, -1e18);
-
-        // Verify developer balance unchanged (no distribution attempted)
-        assertEq(
-            dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged"
-        );
-
-        // Verify lastMinted NOT updated since no distribution happens on liquidity ops
-        assertEq(staking.lastMinted(), startTime, "lastMinted should not update on liquidity operations");
     }
 }
 

@@ -432,6 +432,8 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         // Trigger reward distribution before the swap to mitigate tick manipulation attacks
+        // Note: _handleDistributionAndSettlement has early returns for zero rewards and zero liquidity,
+        // minimizing gas costs when no distribution is needed
         _handleDistributionAndSettlement(key, hookData);
         
         // Get the actual message sender (may differ from 'sender' when using routers)
