@@ -33,7 +33,8 @@ import {ISuperDCAListing} from "./interfaces/ISuperDCAListing.sol";
  *   beforeAddLiquidity, beforeRemoveLiquidity, and beforeSwap
  * - Fee Management: Three-tier fee structure (internal: 0%, keeper: 0.10%, external: 0.50%)
  * - Keeper System: Users can deposit DCA tokens to become keeper and get reduced fees
- * - Reward Distribution: 50/50 split between community pool donations and developer payments
+ * - Reward Distribution: 50/50 split between community pool donations and developer payments,
+ *   triggered in beforeSwap to prevent unfair LP reward exploitation
  * - Access Control: Role-based permissions for admin operations and fee management
  *
  * Security Features:
@@ -41,6 +42,7 @@ import {ISuperDCAListing} from "./interfaces/ISuperDCAListing.sol";
  * - Dynamic fee enforcement prevents bypassing fee structure
  * - Safe minting with failure handling to prevent DoS attacks
  * - Proper settlement and sync patterns for Uniswap V4 integration
+ * - Reward distribution in beforeSwap prevents tick manipulation attacks
  */
 contract SuperDCAGauge is BaseHook, AccessControl {
     using LPFeeLibrary for uint24;
@@ -315,7 +317,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Handles reward accrual and distribution during liquidity operations.
+     * @notice Handles reward accrual and distribution.
      * @dev This function implements the core reward distribution logic:
      *      1. Syncs the pool manager with the SuperDCA token state
      *      2. Identifies the non-DCA token for reward calculation
@@ -325,6 +327,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *
      *      If no pool liquidity exists, all rewards go to developer to prevent
      *      donation failures. Minting failures are handled gracefully to prevent DoS.
+     *
+     *      SECURITY NOTE: This function is called from beforeSwap to mitigate unfair
+     *      reward distribution. By triggering distribution before swaps, attackers cannot
+     *      manipulate the tick position and then trigger distribution via liquidity operations
+     *      to steal rewards from honest LPs.
      * @param key The pool key identifying the Uniswap V4 pool.
      * @param hookData Additional data passed to the hook for donation operations.
      */
@@ -376,42 +383,36 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     /**
      * @notice Hook called before liquidity is added to a pool.
-     * @dev Triggers reward distribution before the liquidity operation to ensure
-     *      accurate reward calculations based on current pool state.
-     * @param key The pool key for the liquidity operation.
-     * @param hookData Additional data passed to the hook.
+     * @dev Note: Reward distribution is now handled in beforeSwap to prevent
+     *      unfair reward exploitation. See _beforeSwap for details.
      * @return The function selector to confirm successful execution.
      */
     function _beforeAddLiquidity(
         address, // sender
-        PoolKey calldata key,
+        PoolKey calldata, // key
         IPoolManager.ModifyLiquidityParams calldata, // params
-        bytes calldata hookData
+        bytes calldata // hookData
     ) internal override returns (bytes4) {
-        _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeAddLiquidity.selector;
     }
 
     /**
      * @notice Hook called before liquidity is removed from a pool.
-     * @dev Triggers reward distribution before the liquidity operation to ensure
-     *      rewards are properly allocated before pool state changes.
-     * @param key The pool key for the liquidity operation.
-     * @param hookData Additional data passed to the hook.
+     * @dev Note: Reward distribution is now handled in beforeSwap to prevent
+     *      unfair reward exploitation. See _beforeSwap for details.
      * @return The function selector to confirm successful execution.
      */
     function _beforeRemoveLiquidity(
         address, // sender
-        PoolKey calldata key,
+        PoolKey calldata, // key
         IPoolManager.ModifyLiquidityParams calldata, // params
-        bytes calldata hookData
+        bytes calldata // hookData
     ) internal override returns (bytes4) {
-        _handleDistributionAndSettlement(key, hookData);
         return BaseHook.beforeRemoveLiquidity.selector;
     }
 
     /**
-     * @notice Hook called before each swap to determine the appropriate fee.
+     * @notice Hook called before each swap to determine the appropriate fee and handle reward distribution.
      * @dev Implements a three-tier fee structure based on the swapper's status:
      *      - Internal addresses: Pay internalFee (typically 0%)
      *      - Current keeper: Pays keeperFee (typically 0.10%)
@@ -419,17 +420,27 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *
      *      The function uses IMsgSender to get the actual message sender when called
      *      through intermediary contracts like routers or position managers.
+     *
+     *      SECURITY: Reward distribution is triggered here to mitigate unfair LP reward exploitation.
+     *      By distributing rewards before the swap, any attempt to manipulate the tick position will
+     *      trigger distribution first, preventing attackers from positioning themselves to steal rewards.
      * @param sender The address that initiated the swap (may be a router/manager).
+     * @param key The pool key for the swap operation.
+     * @param hookData Additional data passed to the hook for distribution operations.
      * @return selector The function selector for successful execution.
      * @return delta Zero delta as this hook doesn't modify swap amounts.
      * @return fee The calculated fee with override flag set.
      */
     function _beforeSwap(
         address sender,
-        PoolKey calldata, /* key */
+        PoolKey calldata key,
         IPoolManager.SwapParams calldata, /* params */
-        bytes calldata /* hookData */
-    ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
+        bytes calldata hookData
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        // Handle reward distribution and settlement before the swap
+        // This prevents attackers from manipulating tick position to steal rewards
+        _handleDistributionAndSettlement(key, hookData);
+
         // Get the actual message sender (may differ from 'sender' when using routers)
         address swapper = IMsgSender(sender).msgSender();
         uint24 fee;
