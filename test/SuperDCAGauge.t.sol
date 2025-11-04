@@ -100,6 +100,11 @@ contract SuperDCAGaugeTest is Test, Deployers {
         staking.unstake(stakingToken, amount);
     }
 
+    // Helper to perform a swap
+    function _swap(PoolKey memory _key, bool zeroForOne, int256 amountSpecified) internal {
+        swap(_key, zeroForOne, amountSpecified, ZERO_BYTES);
+    }
+
     function setUp() public virtual {
         // Deploy mock WETH
         weth = new MockERC20Token("Wrapped Ether", "WETH", 18);
@@ -289,8 +294,9 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Add more liquidity which should trigger fee collection.
-        _modifyLiquidity(key, 1e18);
+        // Perform a swap which should trigger reward distribution
+        // (distribution is now in beforeSwap instead of beforeAddLiquidity)
+        _swap(key, true, 1000);
 
         // Calculate expected distribution
         uint256 mintAmount = elapsed * mintRate; // 20 * 100 = 2000
@@ -345,8 +351,9 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
         vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
-        // Expect no revert even though the internal mint will fail
-        _modifyLiquidity(key, 1e18);
+        // Expect no revert even though the internal mint will fail when we perform a swap
+        // (distribution is now in beforeSwap)
+        _swap(key, true, 1000);
 
         // Developer balance should remain unchanged
         assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero when mint fails");
@@ -369,8 +376,9 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Remove liquidity using explicit parameters
-        _modifyLiquidity(key, -1);
+        // Perform a swap to trigger distribution
+        // (distribution is now in beforeSwap instead of beforeRemoveLiquidity)
+        _swap(key, true, 1000);
 
         // Calculate expected distribution using the same logic as addLiquidity:
         // They are split evenly unless the mintAmount is odd, in which case the community gets 1 extra wei.
@@ -414,8 +422,9 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
-        // Removing liquidity should not revert
-        _modifyLiquidity(key, -1e18);
+        // Perform a swap which should not revert even though minting fails
+        // (distribution is now in beforeSwap)
+        _swap(key, true, 1000);
 
         // Verify developer balance unchanged from *before* this specific operation
         assertEq(
@@ -465,8 +474,9 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Trigger reward distribution
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap
+        // (distribution is now in beforeSwap)
+        _swap(key, true, 1000);
 
         // Calculate expected rewards
         uint256 expectedMintAmount = elapsed * mintRate; // 20 * 100 = 2000
@@ -486,6 +496,9 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
 
+        // Add some initial liquidity for the pool to exist
+        _modifyLiquidity(key, 1e18);
+
         // Record initial state
         uint256 startTime = staking.lastMinted();
         uint256 initialDevBalance = dcaToken.balanceOf(developer);
@@ -494,11 +507,12 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Trigger reward distribution without adding liquidity
-        _modifyLiquidity(key, 1e18);
-
-        // Remove liquidity
+        // Remove all liquidity to test no-liquidity scenario
         _modifyLiquidity(key, -1e18);
+
+        // Trigger reward distribution via swap (even though there's no liquidity)
+        // This should give all rewards to developer since there's no liquidity
+        _swap(key, true, 1000);
 
         // The developer should receive all the rewards since there is no liquidity
         uint256 expectedDevShare = elapsed * mintRate; // 20 * 100 = 2000
@@ -558,8 +572,8 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Trigger reward distribution by modifying liquidity
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap on the ETH pool
+        _swap(key, true, 1000);
 
         // Calculate expected rewards, ETH expects 1/4 of the total mint amount
         uint256 totalMintAmount = elapsed * mintRate; // 20 * 100 = 2000
@@ -572,8 +586,8 @@ contract RewardsTest is SuperDCAGaugeTest {
             "Developer should receive correct reward amount"
         );
 
-        // Trigger reward distribution by modifying liquidity
-        _modifyLiquidity(usdcKey, 1e18);
+        // Trigger reward distribution via swap on the USDC pool
+        _swap(usdcKey, true, 1000);
 
         // Verify developer rewards
         assertEq(
@@ -610,8 +624,8 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(block.timestamp + elapsed);
 
-        // Trigger reward distribution
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap
+        _swap(key, true, 1000);
 
         // Calculate expected rewards
         uint256 totalMintAmount = elapsed * mintRate;
@@ -627,14 +641,17 @@ contract RewardsTest is SuperDCAGaugeTest {
         // Unstake everything
         _unstake(address(weth), 100e18);
 
+        // Add liquidity so we can perform a swap
+        _modifyLiquidity(key, 1e18);
+
         // Record initial state
         uint256 initialDevBalance = dcaToken.balanceOf(developer);
 
         // Advance time
         vm.warp(block.timestamp + 20);
 
-        // Trigger reward distribution
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap
+        _swap(key, true, 1000);
 
         // Verify no rewards were distributed
         assertEq(dcaToken.balanceOf(developer), initialDevBalance, "No rewards should be distributed with zero stake");
