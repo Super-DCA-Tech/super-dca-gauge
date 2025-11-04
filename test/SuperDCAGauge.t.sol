@@ -89,6 +89,16 @@ contract SuperDCAGaugeTest is Test, Deployers {
         modifyLiquidityRouter.modifyLiquidity(_key, params, ZERO_BYTES);
     }
 
+    // Helper to perform a swap to trigger reward distribution
+    function _swap(PoolKey memory _key, bool zeroForOne, int256 amountSpecified) internal {
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: amountSpecified,
+            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+        });
+        swapRouter.swap(_key, params, ZERO_BYTES);
+    }
+
     // Helper to perform a stake (includes approval).
     function _stake(address stakingToken, uint256 amount) internal {
         dcaToken.approve(address(staking), amount);
@@ -169,6 +179,10 @@ contract SuperDCAGaugeTest is Test, Deployers {
         // Approve tokens for liquidity addition
         weth.approve(address(modifyLiquidityRouter), type(uint256).max);
         dcaToken.approve(address(modifyLiquidityRouter), type(uint256).max);
+        
+        // Approve tokens for swaps
+        weth.approve(address(swapRouter), type(uint256).max);
+        dcaToken.approve(address(swapRouter), type(uint256).max);
     }
 }
 
@@ -246,7 +260,7 @@ contract AfterInitializeTest is SuperDCAGaugeTest {
 }
 
 contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
-    function test_distribution_on_addLiquidity() public {
+    function test_noDistribution_on_addLiquidity() public {
         // Setup: Stake some tokens first using helper.
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
@@ -258,27 +272,14 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Add more liquidity which should trigger fee collection.
+        uint256 initialDevBal = dcaToken.balanceOf(developer);
+
+        // Add more liquidity - this should NOT trigger distribution anymore
         _modifyLiquidity(key, 1e18);
 
-        // Calculate expected distribution
-        uint256 mintAmount = elapsed * mintRate; // 20 * 100 = 2000
-        uint256 communityShare = mintAmount / 2; // 1000
-        uint256 developerShare = mintAmount / 2; // 1000
-
-        // Add the 1 wei to community share if mintAmount is odd
-        if (mintAmount % 2 == 1) {
-            communityShare += 1;
-        }
-
-        // Verify distributions
-        assertEq(dcaToken.balanceOf(developer), developerShare, "Developer should receive correct share");
-        assertEq(staking.lastMinted(), startTime + elapsed, "Last minted timestamp should be updated");
-
-        // Verify the donation by checking that there are fees for the pool
-        // Note: Can't figure out how to check the donation fees got to the pool
-        // so I will verify this on the testnet work.
-        // TODO: Verify this on testnet work.
+        // Verify NO distributions occurred (distribution only happens on swaps now)
+        assertEq(dcaToken.balanceOf(developer), initialDevBal, "No distribution should occur on liquidity operations");
+        assertEq(staking.lastMinted(), startTime, "Last minted timestamp should not be updated on liquidity ops");
     }
 
     function test_noRewardDistributionWhenNoTimeElapsed() public {
@@ -298,35 +299,35 @@ contract BeforeAddLiquidityTest is SuperDCAGaugeTest {
     // --------------------------------------------------
 
     function test_whenMintFails_onAddLiquidity() public {
-        // Stake so that rewards can accrue
+        // This test is no longer relevant since distribution doesn't happen on add liquidity
+        // Keeping it as a no-op test to maintain test structure
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
 
         // Add initial liquidity to create the pool
         _modifyLiquidity(key, 1e18);
 
-        // Advance time so rewards are due
         uint256 startTime = staking.lastMinted();
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Remove minting permissions from the gauge so that subsequent mint calls revert
+        // Remove minting permissions from the gauge
         vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
-        // Expect no revert even though the internal mint will fail
+        // Adding liquidity should not revert and should not attempt distribution
         _modifyLiquidity(key, 1e18);
 
-        // Developer balance should remain unchanged
-        assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero when mint fails");
+        // Developer balance should remain zero (no distribution attempted)
+        assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero");
 
-        // lastMinted should still update
-        assertEq(staking.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
+        // lastMinted should NOT update since no distribution happens on liquidity ops
+        assertEq(staking.lastMinted(), startTime, "lastMinted should not update on liquidity operations");
     }
 }
 
 contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
-    function test_distribution_on_removeLiquidity() public {
+    function test_noDistribution_on_removeLiquidity() public {
         // Setup: Stake some tokens first
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
@@ -338,27 +339,14 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Remove liquidity using explicit parameters
+        uint256 initialDevBal = dcaToken.balanceOf(developer);
+
+        // Remove liquidity - this should NOT trigger distribution anymore
         _modifyLiquidity(key, -1);
 
-        // Calculate expected distribution using the same logic as addLiquidity:
-        // They are split evenly unless the mintAmount is odd, in which case the community gets 1 extra wei.
-        uint256 mintAmount = elapsed * mintRate; // 20 * 100 = 2000
-        uint256 developerShare = mintAmount / 2; // Equal split (rounded down)
-        uint256 communityShare = mintAmount / 2; // Equal split (rounded down)
-        if (mintAmount % 2 == 1) {
-            communityShare += 1;
-        }
-
-        // Verify distributions:
-        // Developer should receive their share while the pool (via manager) gets the community share.
-        assertEq(dcaToken.balanceOf(developer), developerShare, "Developer should receive correct share");
-        assertEq(staking.lastMinted(), startTime + elapsed, "Last minted timestamp should be updated");
-
-        // Verify the donation by checking that there are fees for the pool
-        // Note: Can't figure out how to check the donation fees got to the pool
-        // so I will verify this on the testnet work.
-        // TODO: Verify this on testnet work.
+        // Verify NO distributions occurred (distribution only happens on swaps now)
+        assertEq(dcaToken.balanceOf(developer), initialDevBal, "No distribution should occur on liquidity operations");
+        assertEq(staking.lastMinted(), startTime, "Last minted timestamp should not be updated on liquidity ops");
     }
 
     // --------------------------------------------------
@@ -366,32 +354,100 @@ contract BeforeRemoveLiquidityTest is SuperDCAGaugeTest {
     // --------------------------------------------------
 
     function test_whenMintFails_onRemoveLiquidity() public {
-        // Stake and add liquidity first
+        // This test is no longer relevant since distribution doesn't happen on remove liquidity
+        // Keeping it as a no-op test to maintain test structure
         uint256 stakeAmount = 100e18;
         _stake(address(weth), stakeAmount);
         _modifyLiquidity(key, 1e18);
 
-        // Advance time so rewards accrue
         uint256 startTime = staking.lastMinted();
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Take a snapshot of the developer's balance BEFORE the mint failure scenario
         uint256 devBalanceBefore = dcaToken.balanceOf(developer);
 
-        // Remove minting permissions from the gauge so that mint attempts revert
+        // Remove minting permissions
         vm.prank(developer);
         hook.returnSuperDCATokenOwnership();
 
-        // Removing liquidity should not revert
+        // Removing liquidity should not revert and should not attempt distribution
         _modifyLiquidity(key, -1e18);
 
-        // Verify developer balance unchanged from *before* this specific operation
+        // Verify developer balance unchanged (no distribution attempted)
         assertEq(
-            dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged after failed mint"
+            dcaToken.balanceOf(developer), devBalanceBefore, "Developer balance should be unchanged"
         );
 
-        // Verify lastMinted updated
+        // Verify lastMinted NOT updated since no distribution happens on liquidity ops
+        assertEq(staking.lastMinted(), startTime, "lastMinted should not update on liquidity operations");
+    }
+}
+
+contract BeforeSwapTest is SuperDCAGaugeTest {
+    function test_distribution_on_swap() public {
+        // Setup: Stake some tokens first
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+
+        // Add liquidity to the pool
+        _modifyLiquidity(key, 1e18);
+
+        uint256 startTime = staking.lastMinted();
+        uint256 elapsed = 20;
+        vm.warp(startTime + elapsed);
+
+        // Perform a swap which should trigger distribution
+        _swap(key, true, 1e16); // Swap a small amount
+
+        // Calculate expected distribution
+        uint256 mintAmount = elapsed * mintRate; // 20 * 100 = 2000
+        uint256 developerShare = mintAmount / 2; // 1000
+
+        // Verify distributions
+        assertEq(dcaToken.balanceOf(developer), developerShare, "Developer should receive correct share from swap");
+        assertEq(staking.lastMinted(), startTime + elapsed, "Last minted timestamp should be updated on swap");
+    }
+
+    function test_noDistribution_whenNoTimeElapsed_onSwap() public {
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+
+        _modifyLiquidity(key, 1e18);
+
+        uint256 initialDevBal = dcaToken.balanceOf(developer);
+        
+        // Swap immediately without time passing
+        _swap(key, true, 1e16);
+
+        assertEq(
+            dcaToken.balanceOf(developer), initialDevBal, "No rewards should be distributed with zero elapsed time"
+        );
+    }
+
+    function test_whenMintFails_onSwap() public {
+        // Stake so that rewards can accrue
+        uint256 stakeAmount = 100e18;
+        _stake(address(weth), stakeAmount);
+
+        // Add initial liquidity
+        _modifyLiquidity(key, 1e18);
+
+        // Advance time so rewards are due
+        uint256 startTime = staking.lastMinted();
+        uint256 elapsed = 20;
+        vm.warp(startTime + elapsed);
+
+        // Remove minting permissions from the gauge so that mint calls revert
+        vm.prank(developer);
+        hook.returnSuperDCATokenOwnership();
+
+        // Swap should not revert even though the internal mint will fail
+        _swap(key, true, 1e16);
+
+        // Developer balance should remain zero when mint fails
+        assertEq(dcaToken.balanceOf(developer), 0, "Developer balance should remain zero when mint fails");
+
+        // lastMinted should still update
         assertEq(staking.lastMinted(), startTime + elapsed, "lastMinted should update even when minting fails");
     }
 }
@@ -411,8 +467,9 @@ contract RewardsTest is SuperDCAGaugeTest {
         usdcKey = _createPoolKey(address(usdc), address(dcaToken), LPFeeLibrary.DYNAMIC_FEE_FLAG);
         manager.initialize(usdcKey, SQRT_PRICE_1_1);
 
-        // Approve USDC for liquidity
+        // Approve USDC for liquidity and swaps
         usdc.approve(address(modifyLiquidityRouter), type(uint256).max);
+        usdc.approve(address(swapRouter), type(uint256).max);
 
         // Mock token listing check for USDC
         bytes4 IS_TOKEN_LISTED = bytes4(keccak256("isTokenListed(address)"));
@@ -434,8 +491,8 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Trigger reward distribution
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap
+        _swap(key, true, 1e16);
 
         // Calculate expected rewards
         uint256 expectedMintAmount = elapsed * mintRate; // 20 * 100 = 2000
@@ -463,14 +520,17 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Trigger reward distribution without adding liquidity
+        // Add liquidity
         _modifyLiquidity(key, 1e18);
+
+        // Trigger distribution via swap (pool now has liquidity)
+        _swap(key, true, 1e16);
 
         // Remove liquidity
         _modifyLiquidity(key, -1e18);
 
-        // The developer should receive all the rewards since there is no liquidity
-        uint256 expectedDevShare = elapsed * mintRate; // 20 * 100 = 2000
+        // Developer should receive their share from the swap distribution
+        uint256 expectedDevShare = (elapsed * mintRate) / 2; // 20 * 100 / 2 = 1000
 
         // Verify rewards
         assertEq(
@@ -527,8 +587,8 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(startTime + elapsed);
 
-        // Trigger reward distribution by modifying liquidity
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap on WETH pool
+        _swap(key, true, 1e16);
 
         // Calculate expected rewards, ETH expects 1/4 of the total mint amount
         uint256 totalMintAmount = elapsed * mintRate; // 20 * 100 = 2000
@@ -541,8 +601,8 @@ contract RewardsTest is SuperDCAGaugeTest {
             "Developer should receive correct reward amount"
         );
 
-        // Trigger reward distribution by modifying liquidity
-        _modifyLiquidity(usdcKey, 1e18);
+        // Trigger reward distribution via swap on USDC pool
+        _swap(usdcKey, true, 1e16);
 
         // Verify developer rewards
         assertEq(
@@ -579,8 +639,8 @@ contract RewardsTest is SuperDCAGaugeTest {
         uint256 elapsed = 20;
         vm.warp(block.timestamp + elapsed);
 
-        // Trigger reward distribution
-        _modifyLiquidity(key, 1e18);
+        // Trigger reward distribution via swap
+        _swap(key, true, 1e16);
 
         // Calculate expected rewards
         uint256 totalMintAmount = elapsed * mintRate;
@@ -602,8 +662,11 @@ contract RewardsTest is SuperDCAGaugeTest {
         // Advance time
         vm.warp(block.timestamp + 20);
 
-        // Trigger reward distribution
+        // Add liquidity first
         _modifyLiquidity(key, 1e18);
+
+        // Trigger distribution via swap
+        _swap(key, true, 1e16);
 
         // Verify no rewards were distributed
         assertEq(dcaToken.balanceOf(developer), initialDevBalance, "No rewards should be distributed with zero stake");
