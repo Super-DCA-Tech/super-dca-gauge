@@ -363,6 +363,11 @@ contract List is SuperDCAListingTest {
 
         // assign hook to key and initialize pool
         key = _initPoolWithHook(key, hook);
+        
+        // Transfer ownership to test contract for list tests
+        vm.prank(developer);
+        listing.transferOwnership(address(this));
+        listing.acceptOwnership();
     }
 
     // Deterministically deploy a MockERC20Token at a specific address using deployCodeTo
@@ -408,7 +413,7 @@ contract List is SuperDCAListingTest {
     function test_RevertWhen_IncorrectHookAddress() public {
         // Initialize pool with one hook, but configure listing with a different expected hook
         IHooks hookB = _deployHookWithSalt(0x4243);
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.setHookAddress(hookB);
 
         // Use the already-initialized pool key with hookA
@@ -480,6 +485,23 @@ contract List is SuperDCAListingTest {
         listing.list(nfpId, provided);
     }
 
+    function test_RevertWhen_CallerIsNotOwner() public {
+        // Create a new address that is not the owner
+        address unauthorizedCaller = address(0x9999);
+        
+        // Mint a full-range NFP owned by the unauthorized caller
+        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, unauthorizedCaller);
+        
+        // Approve the listing contract to transfer the NFP and attempt to list
+        vm.startPrank(unauthorizedCaller);
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        
+        // Attempt to list without being the owner
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, unauthorizedCaller));
+        listing.list(nfpId, key);
+        vm.stopPrank();
+    }
+
     function test_RegistersTokenAndTransfersNfp_When_DcaTokenIsCurrency0() public {
         // Ensure currency0 is the DCA token by deploying ALT at an address greater than DCA
         address altAddr = _addressGreaterThan(address(dcaToken));
@@ -539,6 +561,11 @@ contract CollectFees is SuperDCAListingTest {
         vm.prank(developer);
         SuperDCAGauge(address(hook)).setStaking(address(fake));
         key = _initPoolWithHook(key, hook);
+        
+        // Transfer ownership to test contract for list tests
+        vm.prank(developer);
+        listing.transferOwnership(address(this));
+        listing.acceptOwnership();
     }
 
     function test_CollectFees_IncreasesRecipientBalances_When_CalledByAdmin() public {
@@ -558,7 +585,7 @@ contract CollectFees is SuperDCAListingTest {
         uint256 b0 = IERC20(token0Addr).balanceOf(recipient);
         uint256 b1 = IERC20(token1Addr).balanceOf(recipient);
 
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.collectFees(nfpId, recipient);
 
         assertGt(IERC20(token0Addr).balanceOf(recipient), b0);
@@ -585,25 +612,23 @@ contract CollectFees is SuperDCAListingTest {
         // 1 wei is lost due to precision in the donation/collection process (TAKE_PAIR action)
         emit FeesCollected(recipient, token0Addr, token1Addr, expected0 - 1, expected1 - 1);
 
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.collectFees(nfpId, recipient);
     }
 
-    function test_RevertWhen_CollectFeesCalledByNonAdmin(address _notAdmin) public {
-        vm.assume(_notAdmin != developer && _notAdmin != address(0));
-        vm.prank(_notAdmin);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notAdmin));
+    function test_RevertWhen_CollectFeesCalledByNonOwner(address _notOwner) public {
+        vm.assume(_notOwner != address(this) && _notOwner != address(0));
+        vm.prank(_notOwner);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notOwner));
         listing.collectFees(1, address(0x1234));
     }
 
     function test_RevertWhen_CollectFeesWithZeroNfpId() public {
-        vm.prank(developer);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__UniswapTokenNotSet.selector);
         listing.collectFees(0, address(0x1234));
     }
 
     function test_RevertWhen_CollectFeesWithZeroRecipient() public {
-        vm.prank(developer);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__InvalidAddress.selector);
         listing.collectFees(1, address(0));
     }
@@ -624,7 +649,7 @@ contract CollectFees is SuperDCAListingTest {
         // Deploy and set hook for native pool
         IHooks hook = _deployHook();
         nativeKey = _initPoolWithHook(nativeKey, hook);
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.setHookAddress(hook);
 
         // Mint position with native ETH and list
@@ -642,7 +667,7 @@ contract CollectFees is SuperDCAListingTest {
         uint256 ethBalanceBefore = recipient.balance;
         uint256 tokenBalanceBefore = dcaToken.balanceOf(recipient);
 
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.collectFees(nfpId, recipient);
 
         // Verify balances increased (fees collected successfully)
@@ -664,7 +689,7 @@ contract CollectFees is SuperDCAListingTest {
         // Deploy and set hook for native pool
         IHooks hook = _deployHook();
         nativeKey = _initPoolWithHook(nativeKey, hook);
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.setHookAddress(hook);
 
         // Mint position with native ETH and list
@@ -686,7 +711,7 @@ contract CollectFees is SuperDCAListingTest {
         // 1 wei is lost due to precision in the donation/collection process
         emit FeesCollected(recipient, address(0), address(dcaToken), expectedETH - 1, expectedToken - 1);
 
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.collectFees(nfpId, recipient);
     }
 }

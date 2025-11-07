@@ -192,10 +192,13 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
      * @notice Lists a token for DCA operations by validating and taking custody of a Uniswap V4 NFT position.
      * @dev On successful validation, transfers NFT custody to this contract and marks
      *      the token as listed for DCA operations.
+     *      Only callable by the contract owner.
      * @param nftId The Uniswap V4 NFT position ID to use for listing.
      * @param providedKey The pool key that must match the position's actual configuration.
      */
     function list(uint256 nftId, PoolKey calldata providedKey) external override {
+        _checkOwner();
+        
         // Verify NFT ID is non-zero
         if (nftId == 0) revert SuperDCAListing__UniswapTokenNotSet();
 
