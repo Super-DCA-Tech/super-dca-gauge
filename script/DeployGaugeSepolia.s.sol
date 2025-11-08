@@ -9,7 +9,7 @@ contract DeployGaugeSepolia is DeployGaugeBase {
     // Hook constants
     address public constant POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
     address public constant POSITION_MANAGER = 0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4;
-    address public constant DEVELOPER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
+    address public constant DEVELOPER = 0x6a89abA79880D810C286070d999fdCbaC8d7CdaF; // &DCA Deployer
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
     // Pool constants

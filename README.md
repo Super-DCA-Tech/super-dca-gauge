@@ -165,13 +165,17 @@ scopelint spec    # generate human-readable spec from test names
 - Diagrams: `docs/security/diagrams/*`
 
 ## Deployment Addresses
-| Network | Contract | Address |
-| --- | --- | --- |
-| All | Super DCA Token | 0xb1599cde32181f48f89683d3c5db5c5d2c7c93cc |
-| Base | `SuperDCAGauge` | [0xBc5F29A583a8d3ec76e03372659e01a22feE3A80](https://basescan.org/address/0xBc5F29A583a8d3ec76e03372659e01a22feE3A80) |
-| Optimism | `SuperDCAGauge` | [0xb4f4Ad63BCc0102B10e6227236e569Dce0d97A80](https://optimistic.etherscan.io/address/0xb4f4Ad63BCc0102B10e6227236e569Dce0d97A80) |
-| Base Sepolia | `SuperDCAGauge` | [0x741810C3Fb97194dEcB045E45b9920680E1d7a80](https://sepolia.basescan.org/address/0x741810C3Fb97194dEcB045E45b9920680E1d7a80) |
-| Unichain Sepolia | `SuperDCAGauge` | [0xEC67C9D1145aBb0FBBc791B657125718381DBa80](https://unichain-sepolia.blockscout.com/address/0xEC67C9D1145aBb0FBBc791B657125718381DBa80) |
+
+### Sepolia Deployment
+
+| Contract | Address |
+| --- | --- |
+| `SuperDCAToken` | [0x26AE4b2b875Ec1DC6e4FDc3e9C74E344c3b43A54](https://sepolia.etherscan.io/address/0x26AE4b2b875Ec1DC6e4FDc3e9C74E344c3b43A54) |
+| `SuperDCAGauge` | [0x186B91A71955809464dE81fD8f39061C9961Fa80](https://sepolia.etherscan.io/address/0x186B91A71955809464dE81fD8f39061C9961Fa80) |
+| `SuperDCAListing` | [0x42aC701DA637524C6B156ACe5b460F9eBaad4Abc](https://sepolia.etherscan.io/address/0x42aC701DA637524C6B156ACe5b460F9eBaad4Abc) |
+| `SuperDCAStaking` | [0xC085a14d5b4fd34e8F3083308f78b7f5cA9228F6](https://sepolia.etherscan.io/address/0xC085a14d5b4fd34e8F3083308f78b7f5cA9228F6) |
+
+
 
 ## License
 

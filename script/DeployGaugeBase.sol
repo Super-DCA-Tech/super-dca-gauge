@@ -25,14 +25,14 @@ abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
     // bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    // Superchain ERC20 token is the same address on all Superchain's
-    address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
+    // Superchain ERC20 token is the same address on all Superchain's 
+    address public constant DCA_TOKEN = 0x26AE4b2b875Ec1DC6e4FDc3e9C74E344c3b43A54; // Sepolia DCA Token // 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
     // Note: Read these from the existing DCA-USDC, DCA-WETH, DCA-WBTC pools
-    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
-    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5174885917930467233270080641214; // 0.0002344 ETH/DCA
-    uint160 public constant INITIAL_SQRT_PRICE_X96_WBTC = 5174885917930467233270080641214; // 0.0002344 WBTC/DCA
+    uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 79228162514264337593543950336; // 1 to 1
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 7333874938129751115616155335886;
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WBTC = 7333874938129751115616155335886; // Set to ETH-DCA for sepolia testing.
     
     struct HookConfiguration {
         address poolManager;
