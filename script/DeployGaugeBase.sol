@@ -29,9 +29,11 @@ abstract contract DeployGaugeBase is Script {
     address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
+    // Note: Read these from the existing DCA-USDC, DCA-WETH, DCA-WBTC pools
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 101521246766866706223754711356428849; // SQRT_PRICE_1_2 (0.5 USDC/DCA)
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 5174885917930467233270080641214; // 0.0002344 ETH/DCA
-
+    uint160 public constant INITIAL_SQRT_PRICE_X96_WBTC = 5174885917930467233270080641214; // 0.0002344 WBTC/DCA
+    
     struct HookConfiguration {
         address poolManager;
         uint256 mintRate;
@@ -39,10 +41,12 @@ abstract contract DeployGaugeBase is Script {
     }
 
     struct PoolConfiguration {
-        // First token config (e.g. WETH)
-        address token0;
-        // Second token config (e.g. USDC)
-        address token1;
+        // ETH token address (Native ETH uses address(0))
+        address eth;
+        // USDC token address
+        address usdc;
+        // WBTC token address
+        address wbtc;
     }
 
     struct DeployedContracts {
@@ -122,16 +126,24 @@ abstract contract DeployGaugeBase is Script {
 
         // Create pool keys for both USDC/DCA and ETH/DCA pools
         PoolKey memory usdcPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
-            currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
+            currency0: address(DCA_TOKEN) < poolConfig.usdc ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.usdc),
+            currency1: address(DCA_TOKEN) < poolConfig.usdc ? Currency.wrap(poolConfig.usdc) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
             hooks: IHooks(hook)
         });
 
         PoolKey memory ethPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
-            currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
+            currency0: address(DCA_TOKEN) < poolConfig.eth ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.eth),
+            currency1: address(DCA_TOKEN) < poolConfig.eth ? Currency.wrap(poolConfig.eth) : Currency.wrap(DCA_TOKEN),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60,
+            hooks: IHooks(hook)
+        });
+
+        PoolKey memory wbtcPoolKey = PoolKey({
+            currency0: address(DCA_TOKEN) < poolConfig.wbtc ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.wbtc),
+            currency1: address(DCA_TOKEN) < poolConfig.wbtc ? Currency.wrap(poolConfig.wbtc) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
             hooks: IHooks(hook)
@@ -140,7 +152,8 @@ abstract contract DeployGaugeBase is Script {
         // Initialize both pools
         IPoolManager(hookConfig.poolManager).initialize(usdcPoolKey, INITIAL_SQRT_PRICE_X96_USDC);
         IPoolManager(hookConfig.poolManager).initialize(ethPoolKey, INITIAL_SQRT_PRICE_X96_WETH);
-        _log("Initialized USDC/DCA and ETH/DCA Pools");
+        IPoolManager(hookConfig.poolManager).initialize(wbtcPoolKey, INITIAL_SQRT_PRICE_X96_WBTC);
+        _log("Initialized USDC/DCA, ETH/DCA, and WBTC/DCA Pools");
 
         _log("DCA Token:", DCA_TOKEN);
         _log("Hook:", address(hook));

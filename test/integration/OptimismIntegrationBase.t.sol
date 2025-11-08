@@ -245,6 +245,22 @@ contract OptimismIntegrationBase is Test {
         poolManager.initialize(key, sqrtPriceX96);
     }
 
+    /// @notice Helper to get an already initialized pool key without initializing it
+    function _getPoolKey(address token, int24 tickSpacing) internal view returns (PoolKey memory key) {
+        // Ensure DCA token is always currency0 for consistency
+        (Currency currency0, Currency currency1) = DCA_TOKEN < token
+            ? (Currency.wrap(DCA_TOKEN), Currency.wrap(token))
+            : (Currency.wrap(token), Currency.wrap(DCA_TOKEN));
+
+        key = PoolKey({
+            currency0: currency0,
+            currency1: currency1,
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: tickSpacing,
+            hooks: IHooks(address(gauge))
+        });
+    }
+
     /// @notice Helper to create a full-range position NFT
     function _createFullRangePosition(PoolKey memory key, uint256 amount0, uint256 amount1, address recipient)
         internal

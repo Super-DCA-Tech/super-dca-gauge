@@ -1050,12 +1050,12 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wethNftId);
         listing.list(wethNftId, wethKey);
 
-        // Create WBTC pool and get NFT for listing
+        // Use already initialized WBTC pool from deployment and get NFT for listing
         address WBTC = 0x68f180fcCe6836688e9084f035309E29Bf0A2095; // WBTC on Optimism
         deal(WBTC, address(this), 100e8); // 100 WBTC (8 decimals)
         IERC20(WBTC).approve(POSITION_MANAGER_V4, type(uint256).max);
 
-        (PoolKey memory wbtcKey,) = _createTestPool(WBTC, int24(60), sqrtPriceX96);
+        PoolKey memory wbtcKey = _getPoolKey(WBTC, int24(60));
         uint256 wbtcNftId = _createFullRangePosition(wbtcKey, 2000e18, 2000e18, address(this));
         // List WBTC token
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wbtcNftId);
