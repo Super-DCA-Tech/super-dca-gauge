@@ -307,22 +307,16 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         _updateRewardIndex();
 
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
-        
-        // Start with accumulated pending rewards
+
+        // Accumulate pending rewards before updating lastRewardIndex
+        _accumulatePendingRewards(info);
+
         rewardAmount = info.pendingReward;
-        
-        // Add rewards for the current period if there are staked tokens
-        if (info.stakedAmount > 0) {
-            uint256 delta = rewardIndex - info.lastRewardIndex;
-            if (delta > 0) {
-                rewardAmount += Math.mulDiv(info.stakedAmount, delta, 1e18);
-            }
-        }
 
         // Update the token's last reward index to current index and clear pending rewards
         info.lastRewardIndex = rewardIndex;
         info.pendingReward = 0;
-        
+
         return rewardAmount;
     }
 
