@@ -169,7 +169,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
         nfpId = positionManagerV4.nextTokenId();
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp);
     }
 
     function _mintNarrow(PoolKey memory _key, int24 lower, int24 upper, uint256 amount0, uint256 amount1, address owner)
@@ -194,7 +194,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
         nfpId = positionManagerV4.nextTokenId();
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp);
     }
 
     function _accrueFeesByDonation(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
@@ -248,7 +248,7 @@ contract SuperDCAListingTest is Test, Deployers {
         }
         
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities{value: ethValue}(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities{value: ethValue}(calls, block.timestamp);
     }
 
     function _accrueFeesByDonationWithNativeETH(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
