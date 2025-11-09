@@ -118,18 +118,11 @@ contract SetMintRate is SuperDCAStakingTest {
         assertEq(staking.mintRate(), _newRate);
     }
 
-    function testFuzz_UpdatesMintRateWhenCalledByGauge(uint256 _newRate) public {
-        vm.prank(gauge);
-        vm.expectEmit();
-        emit SuperDCAStaking.MintRateUpdated(_newRate);
-        staking.setMintRate(_newRate);
-        assertEq(staking.mintRate(), _newRate);
-    }
 
-    function testFuzz_RevertIf_CallerIsNotOwnerOrGauge(address _caller, uint256 _newRate) public {
-        vm.assume(_caller != admin && _caller != gauge);
+    function testFuzz_RevertIf_CallerIsNotOwner(address _caller, uint256 _newRate) public {
+        vm.assume(_caller != admin);
         vm.prank(_caller);
-        vm.expectRevert(SuperDCAStaking.SuperDCAStaking__NotAuthorized.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _caller));
         staking.setMintRate(_newRate);
     }
 
