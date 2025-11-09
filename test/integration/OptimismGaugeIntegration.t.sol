@@ -235,7 +235,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
 
         // ---- Act ----
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // ---- Assert ----
         assertTrue(gauge.isTokenListed(WETH), "WETH should be listed after listing");
@@ -250,7 +250,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // Stake tokens
         vm.startPrank(user1);
@@ -396,7 +396,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // 1. List token
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // 2. Stake in token
         vm.startPrank(user1);
@@ -774,7 +774,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // List the token and stake to enable rewards
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -842,7 +842,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking with rewards
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -890,7 +890,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking with rewards
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -966,7 +966,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -1007,7 +1007,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -1048,7 +1048,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
 
         // List WETH token
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wethNftId);
-        listing.list(wethNftId, wethKey);
+        listing.list(wethNftId);
 
         // Create WBTC pool and get NFT for listing
         address WBTC = 0x68f180fcCe6836688e9084f035309E29Bf0A2095; // WBTC on Optimism
@@ -1059,7 +1059,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         uint256 wbtcNftId = _createFullRangePosition(wbtcKey, 2000e18, 2000e18, address(this));
         // List WBTC token
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wbtcNftId);
-        listing.list(wbtcNftId, wbtcKey);
+        listing.list(wbtcNftId);
 
         // Stake with proportion: 75% in WETH, 25% in WBTC
         uint256 totalStake = 100e18;
