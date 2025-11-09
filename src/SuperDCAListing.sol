@@ -322,7 +322,7 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         params[1] = abi.encode(token0, token1, recipient);
 
         // Execute fee collection with short deadline
-        uint256 deadline = block.timestamp + 60;
+        uint256 deadline = block.timestamp;
         POSITION_MANAGER_V4.modifyLiquidities(abi.encode(actions, params), deadline);
 
         // Calculate and emit the collected amounts
