@@ -21,7 +21,7 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(key, amount0, amount1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         return key;
     }
