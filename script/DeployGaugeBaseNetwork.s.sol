@@ -9,7 +9,7 @@ contract DeployGaugeBaseNetwork is DeployGaugeBase {
     // Hook constants
     address public constant POOL_MANAGER = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
     address public constant POSITION_MANAGER = 0x3C3Ea4B57a46241e54610e5f022E5c45859A1017;
-    address public constant UNIVERSAL_ROUTER = 0x851116D9223fabED8E56C0E6b8Ad0c31d98B3507;
+    address public constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
     // Pool constants
