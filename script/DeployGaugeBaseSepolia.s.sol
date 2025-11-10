@@ -9,6 +9,7 @@ contract DeployGaugeBaseSepolia is DeployGaugeBase {
     // Hook constants
     address public constant POOL_MANAGER = 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408;
     address public constant POSITION_MANAGER = 0x7ddd0a6cA23F7Eb54de8d0598d46d3DAc5Ec7ff5;
+    address public constant UNIVERSAL_ROUTER = 0x851116D9223fabED8E56C0E6b8Ad0c31d98B3507;
     address public constant DEVELOPER = 0xe6D029C4c6e9c60aD0E49d92C850CD8d3E6C394a;
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
@@ -21,7 +22,7 @@ contract DeployGaugeBaseSepolia is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER});
+        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER, universalRouter: UNIVERSAL_ROUTER});
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {
