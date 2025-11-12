@@ -36,6 +36,7 @@ abstract contract DeployGaugeBase is Script {
         address poolManager;
         uint256 mintRate;
         address positionManager;
+        address universalRouter;
     }
 
     struct PoolConfiguration {
@@ -103,6 +104,10 @@ abstract contract DeployGaugeBase is Script {
         require(address(hook) == hookAddress, "Hook address mismatch");
 
         _log("Deployed Hook:", address(hook));
+
+        // Add the Universal Router as a verified router
+        hook.setVerifiedRouter(hookConfig.universalRouter, true);
+        _log("Added Universal Router as a verified router");
 
         // Deploy staking (owned by deployer) and listing (admin = deployer, expected hook = deployed hook)
         staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, deployerAddress);

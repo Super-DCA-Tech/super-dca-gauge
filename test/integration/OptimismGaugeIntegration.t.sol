@@ -764,6 +764,34 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         }
     }
 
+    // ==================== ROUTER VERIFICATION TESTS ====================
+
+    /// @notice Test that unverified routers cannot execute swaps
+    function testFork_RevertWhen_UnverifiedRouterAttemptsSwap() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Verify the Universal Router is initially not verified
+        gauge.setVerifiedRouter(UNIVERSAL_ROUTER, false);
+        assertFalse(gauge.verifiedRouters(UNIVERSAL_ROUTER), "Universal Router should not be verified");
+
+        address externalUser = makeAddr("externalUser");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+
+        // ---- Act & Assert ----
+        // Attempt swap through unverified Universal Router - should revert with SuperDCAGauge__UnauthorizedRouter
+        SwapParams memory swapParams = _prepareSwapParams(key, externalUser, false);
+
+        // Prepare swap execution data using struct
+        SwapExecution memory execution = _prepareSwapExecution(key, uint128(swapAmount), 0, false);
+
+        // Execute the swap
+        vm.prank(externalUser);
+        vm.expectRevert(); // Unverified router should revert
+        universalRouter.execute(execution.commands, execution.inputs, swapParams.deadline);
+    }
+
     // ==================== DISTRIBUTION AND SETTLEMENT TESTS ====================
 
     /// @notice Test that external user swaps trigger distribution and settlement
