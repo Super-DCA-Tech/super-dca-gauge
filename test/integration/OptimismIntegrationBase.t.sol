@@ -233,16 +233,42 @@ contract OptimismIntegrationBase is Test {
 
         poolId = key.toId();
 
-        // Initialize the pool
-        poolManager.initialize(key, sqrtPriceX96);
+        // Check if pool is already initialized by checking if sqrtPriceX96 is non-zero
+        (uint160 existingSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        // Only initialize if the pool doesn't exist yet
+        if (existingSqrtPriceX96 == 0) {
+            poolManager.initialize(key, sqrtPriceX96);
+        }
     }
 
     /// @notice Helper to create a test pool from an existing PoolKey
     function _createTestPoolFromKey(PoolKey memory key, uint160 sqrtPriceX96) internal returns (PoolId poolId) {
         poolId = key.toId();
 
-        // Initialize the pool
-        poolManager.initialize(key, sqrtPriceX96);
+        // Check if pool is already initialized by checking if sqrtPriceX96 is non-zero
+        (uint160 existingSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        // Only initialize if the pool doesn't exist yet
+        if (existingSqrtPriceX96 == 0) {
+            poolManager.initialize(key, sqrtPriceX96);
+        }
+    }
+
+    /// @notice Helper to get an already initialized pool key without initializing it
+    function _getPoolKey(address token, int24 tickSpacing) internal view returns (PoolKey memory key) {
+        // Ensure DCA token is always currency0 for consistency
+        (Currency currency0, Currency currency1) = DCA_TOKEN < token
+            ? (Currency.wrap(DCA_TOKEN), Currency.wrap(token))
+            : (Currency.wrap(token), Currency.wrap(DCA_TOKEN));
+
+        key = PoolKey({
+            currency0: currency0,
+            currency1: currency1,
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: tickSpacing,
+            hooks: IHooks(address(gauge))
+        });
     }
 
     /// @notice Helper to create a full-range position NFT

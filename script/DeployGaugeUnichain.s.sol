@@ -15,6 +15,7 @@ contract DeployGaugeUnichain is DeployGaugeBase {
     // Pool constants
     address public constant ETH = address(0);
     address public constant USDC = 0x078D782b760474a361dDA0AF3839290b0EF57AD6;
+    address public constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
 
     function run() public override returns (DeployedContracts memory) {
         return super.run();
@@ -25,6 +26,6 @@ contract DeployGaugeUnichain is DeployGaugeBase {
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {
-        return PoolConfiguration({token0: ETH, token1: USDC});
+        return PoolConfiguration({eth: ETH, usdc: USDC, wbtc: WBTC});
     }
 }
