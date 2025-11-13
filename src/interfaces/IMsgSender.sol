@@ -2,5 +2,5 @@
 pragma solidity ^0.8.22;
 
 interface IMsgSender {
-    function msgSender() external view returns (address);
+  function msgSender() external view returns (address);
 }
