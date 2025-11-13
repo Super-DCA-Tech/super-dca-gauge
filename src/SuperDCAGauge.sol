@@ -428,9 +428,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *      - Internal addresses: Pay internalFee (typically 0%)
      *      - Current keeper: Pays keeperFee (typically 0.10%)
      *      - External users: Pay externalFee (typically 0.50%)
-     *
-     *      Only queries msgSender() if the sender is a verified router. Otherwise,
-     *      treats the sender directly as the swapper.
+     *      Queries msgSender() if the sender is a verified router.
      * @param sender The address that initiated the swap (may be a router/manager).
      * @return selector The function selector for successful execution.
      * @return delta Zero delta as this hook doesn't modify swap amounts.
