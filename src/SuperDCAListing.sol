@@ -197,7 +197,7 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
      */
     function list(uint256 nftId) external override {
         _checkOwner();
-        
+
         // Verify NFT ID is non-zero
         if (nftId == 0) revert SuperDCAListing__UniswapTokenNotSet();
 

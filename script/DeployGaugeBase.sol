@@ -25,15 +25,15 @@ abstract contract DeployGaugeBase is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
     // bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    // Superchain ERC20 token is the same address on all Superchain's 
-    address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc; 
+    // Superchain ERC20 token is the same address on all Superchain's
+    address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
 
     // Initial sqrtPriceX96 for the pools
     // Note: Read these from the existing DCA-USDC, DCA-WETH, DCA-WBTC pools on Optimism Stateview Slot0
     uint160 public constant INITIAL_SQRT_PRICE_X96_USDC = 115269002597755312273536057161347525;
     uint160 public constant INITIAL_SQRT_PRICE_X96_WETH = 7333874938129751115616155335886;
     uint160 public constant INITIAL_SQRT_PRICE_X96_WBTC = 3811449191833014170351773974298724815;
-    
+
     struct HookConfiguration {
         address poolManager;
         uint256 mintRate;
@@ -91,8 +91,9 @@ abstract contract DeployGaugeBase is Script {
         );
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs =
-            abi.encode(hookConfig.poolManager, DCA_TOKEN, deployerAddress, IPositionManager(hookConfig.positionManager));
+        bytes memory constructorArgs = abi.encode(
+            hookConfig.poolManager, DCA_TOKEN, deployerAddress, IPositionManager(hookConfig.positionManager)
+        );
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);

@@ -218,7 +218,7 @@ contract SuperDCAListingTest is Test, Deployers {
             // Give owner ETH for native token
             vm.deal(owner, amount0 + 1 ether); // Extra for gas
         }
-        
+
         if (!_key.currency1.isAddressZero()) {
             _fundAndApprove(owner, Currency.unwrap(_key.currency1), amount1);
         } else {
@@ -238,7 +238,7 @@ contract SuperDCAListingTest is Test, Deployers {
         bytes memory calls = planner.finalizeModifyLiquidityWithClose(_key);
 
         nfpId = positionManagerV4.nextTokenId();
-        
+
         // Calculate ETH value to send
         uint256 ethValue = 0;
         if (_key.currency0.isAddressZero()) {
@@ -246,7 +246,7 @@ contract SuperDCAListingTest is Test, Deployers {
         } else if (_key.currency1.isAddressZero()) {
             ethValue = amount1;
         }
-        
+
         vm.prank(owner);
         positionManagerV4.modifyLiquidities{value: ethValue}(calls, block.timestamp);
     }
@@ -254,7 +254,7 @@ contract SuperDCAListingTest is Test, Deployers {
     function _accrueFeesByDonationWithNativeETH(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
         address t0 = Currency.unwrap(_key.currency0);
         address t1 = Currency.unwrap(_key.currency1);
-        
+
         // Deal and approve non-native tokens
         if (!_key.currency0.isAddressZero()) {
             deal(t0, address(this), amt0);
@@ -262,14 +262,14 @@ contract SuperDCAListingTest is Test, Deployers {
         } else {
             vm.deal(address(this), amt0 + 1 ether);
         }
-        
+
         if (!_key.currency1.isAddressZero()) {
             deal(t1, address(this), amt1);
             IERC20(t1).approve(address(donateRouter), amt1);
         } else {
             vm.deal(address(this), amt1 + 1 ether);
         }
-        
+
         // Calculate ETH value to send
         uint256 ethValue = 0;
         if (_key.currency0.isAddressZero()) {
@@ -277,7 +277,7 @@ contract SuperDCAListingTest is Test, Deployers {
         } else if (_key.currency1.isAddressZero()) {
             ethValue = amt1;
         }
-        
+
         donateRouter.donate{value: ethValue}(_key, amt0, amt1, "");
     }
 
@@ -363,7 +363,7 @@ contract List is SuperDCAListingTest {
 
         // assign hook to key and initialize pool
         key = _initPoolWithHook(key, hook);
-        
+
         // Transfer ownership to test contract for list tests
         vm.prank(developer);
         listing.transferOwnership(address(this));
@@ -479,14 +479,14 @@ contract List is SuperDCAListingTest {
     function test_RevertWhen_CallerIsNotOwner() public {
         // Create a new address that is not the owner
         address unauthorizedCaller = address(0x9999);
-        
+
         // Mint a full-range NFP owned by the unauthorized caller
         uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, unauthorizedCaller);
-        
+
         // Approve the listing contract to transfer the NFP and attempt to list
         vm.startPrank(unauthorizedCaller);
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        
+
         // Attempt to list without being the owner
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, unauthorizedCaller));
         listing.list(nfpId);
@@ -552,7 +552,7 @@ contract CollectFees is SuperDCAListingTest {
         vm.prank(developer);
         SuperDCAGauge(address(hook)).setStaking(address(fake));
         key = _initPoolWithHook(key, hook);
-        
+
         // Transfer ownership to test contract for list tests
         vm.prank(developer);
         listing.transferOwnership(address(this));
@@ -646,7 +646,7 @@ contract CollectFees is SuperDCAListingTest {
         // Mint position with native ETH and list
         address owner = address(this);
         uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
-        
+
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         listing.list(nfpId);
 
@@ -686,7 +686,7 @@ contract CollectFees is SuperDCAListingTest {
         // Mint position with native ETH and list
         address owner = address(this);
         uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
-        
+
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         listing.list(nfpId);
 

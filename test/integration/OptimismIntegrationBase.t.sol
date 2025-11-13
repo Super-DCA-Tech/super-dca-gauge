@@ -560,7 +560,13 @@ contract OptimismIntegrationBase is Test {
     /// @param swapper The address performing the swap
     /// @param zeroForOne Direction of the swap
     /// @return result SwapResult struct with swap details
-    function _executeDirectSwap(PoolKey memory key, int128, /* amountIn */ address swapper, bool zeroForOne)
+    function _executeDirectSwap(
+        PoolKey memory key,
+        int128,
+        /* amountIn */
+        address swapper,
+        bool zeroForOne
+    )
         internal
         returns (SwapResult memory result)
     {

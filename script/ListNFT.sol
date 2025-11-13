@@ -89,27 +89,27 @@ contract ListNFT is Script {
         if (newOwner == listingAddress) {
             console2.log("Successfully listed NFT.");
             console2.log("Token", listedToken, "is now listed:", listing.isTokenListed(listedToken));
-            
+
             // Now stake 10 DCA tokens to the newly listed token
             console2.log("");
             console2.log("=== Staking DCA tokens ===");
-            
+
             // Get gauge and staking contracts
             address gaugeAddress = address(listing.expectedHooks());
             SuperDCAGauge gauge = SuperDCAGauge(payable(gaugeAddress));
             address stakingAddress = address(gauge.staking());
             SuperDCAStaking staking = SuperDCAStaking(payable(stakingAddress));
             address dcaToken = listing.SUPER_DCA_TOKEN();
-            
+
             console2.log("Gauge Address:", gaugeAddress);
             console2.log("Staking Address:", stakingAddress);
             console2.log("DCA Token:", dcaToken);
             console2.log("Stake Amount:", STAKE_AMOUNT);
-            
+
             // Check deployer's DCA token balance
             uint256 dcaBalance = IERC20(dcaToken).balanceOf(deployer);
             console2.log("Deployer DCA Balance:", dcaBalance);
-            
+
             if (dcaBalance < STAKE_AMOUNT) {
                 console2.log("WARNING: Insufficient DCA token balance. Skipping stake.");
             } else {
@@ -117,12 +117,12 @@ contract ListNFT is Script {
                 console2.log("Approving DCA tokens for staking...");
                 IERC20(dcaToken).approve(stakingAddress, STAKE_AMOUNT);
                 console2.log("DCA tokens approved.");
-                
+
                 // Stake to the newly listed token
                 console2.log("Staking DCA tokens to listed token...");
                 staking.stake(listedToken, STAKE_AMOUNT);
                 console2.log("Successfully staked", STAKE_AMOUNT, "DCA tokens to", listedToken);
-                
+
                 // Verify the stake
                 uint256 stakedAmount = staking.userStakes(deployer, listedToken);
                 console2.log("Verified staked amount:", stakedAmount);
