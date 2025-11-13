@@ -169,7 +169,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
         nfpId = positionManagerV4.nextTokenId();
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp);
     }
 
     function _mintNarrow(PoolKey memory _key, int24 lower, int24 upper, uint256 amount0, uint256 amount1, address owner)
@@ -194,7 +194,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
         nfpId = positionManagerV4.nextTokenId();
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp);
     }
 
     function _accrueFeesByDonation(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
@@ -248,7 +248,7 @@ contract SuperDCAListingTest is Test, Deployers {
         }
         
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities{value: ethValue}(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities{value: ethValue}(calls, block.timestamp);
     }
 
     function _accrueFeesByDonationWithNativeETH(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
@@ -403,7 +403,7 @@ contract List is SuperDCAListingTest {
         address expectedToken = _expectedNonDcaToken(keyWithDca);
         vm.expectEmit(true, true, false, true);
         emit TokenListed(expectedToken, nfpId, keyWithDca);
-        listing.list(nfpId, keyWithDca);
+        listing.list(nfpId);
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
@@ -422,12 +422,12 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
 
         vm.expectRevert(SuperDCAListing.SuperDCAListing__IncorrectHookAddress.selector);
-        listing.list(nfpId, wrongHookKey);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_NftIdIsZero() public {
         vm.expectRevert(SuperDCAListing.SuperDCAListing__UniswapTokenNotSet.selector);
-        listing.list(0, key);
+        listing.list(0);
     }
 
     function test_RevertWhen_PositionIsNotFullRange() public {
@@ -436,7 +436,7 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_PartialRange_LowerWrong() public {
@@ -445,7 +445,7 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_PartialRange_UpperWrong() public {
@@ -454,7 +454,7 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintNarrow(key, minTick, maxTick - key.tickSpacing, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_LiquidityBelowMinimum() public {
@@ -462,27 +462,35 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintFullRange(key, 1e9, 1e9, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__LowLiquidity.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_TokenAlreadyListed() public {
         uint256 id1 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), id1);
-        listing.list(id1, key);
+        listing.list(id1);
 
         uint256 id2 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), id2);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__TokenAlreadyListed.selector);
-        listing.list(id2, key);
+        listing.list(id2);
     }
 
-    function test_RevertWhen_MismatchedPoolKeyProvided() public {
-        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+    function test_RevertWhen_CallerIsNotOwner() public {
+        // Create a new address that is not the owner
+        address unauthorizedCaller = address(0x9999);
+        
+        // Mint a full-range NFP owned by the unauthorized caller
+        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, unauthorizedCaller);
+        
+        // Approve the listing contract to transfer the NFP and attempt to list
+        vm.startPrank(unauthorizedCaller);
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        PoolKey memory provided = key;
-        provided.tickSpacing = 30;
-        vm.expectRevert(SuperDCAListing.SuperDCAListing__MismatchedPoolKey.selector);
-        listing.list(nfpId, provided);
+        
+        // Attempt to list without being the owner
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, unauthorizedCaller));
+        listing.list(nfpId);
+        vm.stopPrank();
     }
 
     function test_RevertWhen_CallerIsNotOwner() public {
@@ -516,7 +524,7 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         address expectedToken = _expectedNonDcaToken(keyWithDca0);
 
-        listing.list(nfpId, keyWithDca0);
+        listing.list(nfpId);
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
@@ -537,7 +545,7 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         address expectedToken = _expectedNonDcaToken(keyWithDca1);
 
-        listing.list(nfpId, keyWithDca1);
+        listing.list(nfpId);
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
@@ -572,7 +580,7 @@ contract CollectFees is SuperDCAListingTest {
         // Mint and list
         uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
 
         // Accrue fees via donation
         address token0Addr = Currency.unwrap(key.currency0);
@@ -596,7 +604,7 @@ contract CollectFees is SuperDCAListingTest {
         // Mint and list
         uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
 
         // Accrue fees via donation to ensure non-zero collection
         uint256 expected0 = 100e18;
@@ -657,7 +665,7 @@ contract CollectFees is SuperDCAListingTest {
         uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
         
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        listing.list(nfpId, nativeKey);
+        listing.list(nfpId);
 
         // Accrue fees via donation
         _accrueFeesByDonationWithNativeETH(nativeKey, 0.1 ether, 100e18);
@@ -697,7 +705,7 @@ contract CollectFees is SuperDCAListingTest {
         uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
         
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        listing.list(nfpId, nativeKey);
+        listing.list(nfpId);
 
         // Accrue fees via donation
         uint256 expectedETH = 0.1 ether;

@@ -336,7 +336,7 @@ contract OptimismIntegrationBase is Test {
 
         // Execute the plan
         bytes memory data = plan.encode();
-        uint256 deadline = block.timestamp + 60;
+        uint256 deadline = block.timestamp;
 
         // Start recording logs to capture Transfer events
         vm.recordLogs();

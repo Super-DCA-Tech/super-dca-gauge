@@ -194,24 +194,15 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
      *      the token as listed for DCA operations.
      *      Only callable by the contract owner.
      * @param nftId The Uniswap V4 NFT position ID to use for listing.
-     * @param providedKey The pool key that must match the position's actual configuration.
      */
-    function list(uint256 nftId, PoolKey calldata providedKey) external override {
+    function list(uint256 nftId) external override {
         _checkOwner();
         
         // Verify NFT ID is non-zero
         if (nftId == 0) revert SuperDCAListing__UniswapTokenNotSet();
 
-        // Retrieve actual pool key from position manager and validate it matches
-        // the caller's provided key to prevent manipulation or misconfiguration
-        (PoolKey memory key,) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nftId);
-        if (
-            Currency.unwrap(key.currency0) != Currency.unwrap(providedKey.currency0)
-                || Currency.unwrap(key.currency1) != Currency.unwrap(providedKey.currency1) || key.fee != providedKey.fee
-                || key.tickSpacing != providedKey.tickSpacing || address(key.hooks) != address(providedKey.hooks)
-        ) {
-            revert SuperDCAListing__MismatchedPoolKey();
-        }
+        // Retrieve actual pool key from position manager
+        (PoolKey memory key, PositionInfo _pi) = POSITION_MANAGER_V4.getPoolAndPositionInfo(nftId);
 
         // Confirm pool uses the required hook address
         // This ensures proper integration with the DCA system
@@ -220,7 +211,6 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         // Ensure position is full-range (min to max usable ticks)
         // This prevents gaming with partial liquidity ranges
         {
-            PositionInfo _pi = POSITION_MANAGER_V4.positionInfo(nftId);
             int24 _tickLower = _pi.tickLower();
             int24 _tickUpper = _pi.tickUpper();
 
@@ -322,7 +312,7 @@ contract SuperDCAListing is ISuperDCAListing, Ownable2Step {
         params[1] = abi.encode(token0, token1, recipient);
 
         // Execute fee collection with short deadline
-        uint256 deadline = block.timestamp + 60;
+        uint256 deadline = block.timestamp;
         POSITION_MANAGER_V4.modifyLiquidities(abi.encode(actions, params), deadline);
 
         // Calculate and emit the collected amounts

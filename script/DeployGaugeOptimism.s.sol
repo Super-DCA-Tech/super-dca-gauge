@@ -9,6 +9,7 @@ contract DeployGaugeBaseOptimism is DeployGaugeBase {
     // Hook constants
     address public constant POOL_MANAGER = 0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3;
     address public constant POSITION_MANAGER = 0x3C3Ea4B57a46241e54610e5f022E5c45859A1017;
+    address public constant UNIVERSAL_ROUTER = 0x851116D9223fabED8E56C0E6b8Ad0c31d98B3507;
     uint256 public constant MINT_RATE = 3858024691358024; // 10K per month as wei per second
 
     // Pool constants
@@ -21,7 +22,7 @@ contract DeployGaugeBaseOptimism is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER});
+        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER, universalRouter: UNIVERSAL_ROUTER});
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {

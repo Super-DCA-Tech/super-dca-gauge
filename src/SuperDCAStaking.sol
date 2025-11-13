@@ -162,14 +162,13 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
 
     /**
      * @notice Updates the mint rate used for global reward index growth.
-     * @dev Callable by either the contract owner or the authorized gauge for operational
-     *      flexibility. Higher mint rates increase reward accumulation speed for all stakers.
-     *      Applies old rewards before updating the rate to maintain the invariant that
-     *      past time is priced at the old rate.
+     * @dev Only callable by the contract owner. Higher mint rates increase reward accumulation
+     *      speed for all stakers. Applies old rewards before updating the rate to maintain
+     *      the invariant that past time is priced at the old rate.
      * @param newMintRate The new mint rate in tokens per second.
      */
     function setMintRate(uint256 newMintRate) external override {
-        if (msg.sender != owner() && msg.sender != gauge) revert SuperDCAStaking__NotAuthorized();
+        _checkOwner();
         _updateRewardIndex(); // Apply old rate to past interval before changing
         mintRate = newMintRate;
         emit MintRateUpdated(newMintRate);
@@ -308,22 +307,16 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         _updateRewardIndex();
 
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
-        
-        // Start with accumulated pending rewards
+
+        // Accumulate pending rewards before updating lastRewardIndex
+        _accumulatePendingRewards(info);
+
         rewardAmount = info.pendingReward;
-        
-        // Add rewards for the current period if there are staked tokens
-        if (info.stakedAmount > 0) {
-            uint256 delta = rewardIndex - info.lastRewardIndex;
-            if (delta > 0) {
-                rewardAmount += Math.mulDiv(info.stakedAmount, delta, 1e18);
-            }
-        }
 
         // Update the token's last reward index to current index and clear pending rewards
         info.lastRewardIndex = rewardIndex;
         info.pendingReward = 0;
-        
+
         return rewardAmount;
     }
 

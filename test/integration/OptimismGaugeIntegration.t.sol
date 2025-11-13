@@ -235,7 +235,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
 
         // ---- Act ----
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // ---- Assert ----
         assertTrue(gauge.isTokenListed(WETH), "WETH should be listed after listing");
@@ -250,7 +250,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // Stake tokens
         vm.startPrank(user1);
@@ -396,7 +396,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // 1. List token
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // 2. Stake in token
         vm.startPrank(user1);
@@ -764,6 +764,34 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         }
     }
 
+    // ==================== ROUTER VERIFICATION TESTS ====================
+
+    /// @notice Test that unverified routers cannot execute swaps
+    function testFork_RevertWhen_UnverifiedRouterAttemptsSwap() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Verify the Universal Router is initially not verified
+        gauge.setVerifiedRouter(UNIVERSAL_ROUTER, false);
+        assertFalse(gauge.verifiedRouters(UNIVERSAL_ROUTER), "Universal Router should not be verified");
+
+        address externalUser = makeAddr("externalUser");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+
+        // ---- Act & Assert ----
+        // Attempt swap through unverified Universal Router - should revert with SuperDCAGauge__UnauthorizedRouter
+        SwapParams memory swapParams = _prepareSwapParams(key, externalUser, false);
+
+        // Prepare swap execution data using struct
+        SwapExecution memory execution = _prepareSwapExecution(key, uint128(swapAmount), 0, false);
+
+        // Execute the swap
+        vm.prank(externalUser);
+        vm.expectRevert(); // Unverified router should revert
+        universalRouter.execute(execution.commands, execution.inputs, swapParams.deadline);
+    }
+
     // ==================== DISTRIBUTION AND SETTLEMENT TESTS ====================
 
     /// @notice Test that external user swaps trigger distribution and settlement
@@ -774,7 +802,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // List the token and stake to enable rewards
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -842,7 +870,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking with rewards
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -890,7 +918,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking with rewards
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -966,7 +994,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -1007,7 +1035,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // Setup staking
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         vm.startPrank(user1);
         IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
@@ -1048,18 +1076,18 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
 
         // List WETH token
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wethNftId);
-        listing.list(wethNftId, wethKey);
+        listing.list(wethNftId);
 
-        // Use already initialized WBTC pool from deployment and get NFT for listing
+        // Create WBTC pool and get NFT for listing
         address WBTC = 0x68f180fcCe6836688e9084f035309E29Bf0A2095; // WBTC on Optimism
         deal(WBTC, address(this), 100e8); // 100 WBTC (8 decimals)
         IERC20(WBTC).approve(POSITION_MANAGER_V4, type(uint256).max);
 
-        PoolKey memory wbtcKey = _getPoolKey(WBTC, int24(60));
+        (PoolKey memory wbtcKey,) = _createTestPool(WBTC, int24(60), sqrtPriceX96);
         uint256 wbtcNftId = _createFullRangePosition(wbtcKey, 2000e18, 2000e18, address(this));
         // List WBTC token
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wbtcNftId);
-        listing.list(wbtcNftId, wbtcKey);
+        listing.list(wbtcNftId);
 
         // Stake with proportion: 75% in WETH, 25% in WBTC
         uint256 totalStake = 100e18;
