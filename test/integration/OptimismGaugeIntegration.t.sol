@@ -235,7 +235,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
 
         // ---- Act ----
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // ---- Assert ----
         assertTrue(gauge.isTokenListed(WETH), "WETH should be listed after listing");
@@ -250,7 +250,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // Stake tokens
         vm.startPrank(user1);
@@ -396,7 +396,7 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
         // 1. List token
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // 2. Stake in token
         vm.startPrank(user1);
@@ -762,6 +762,396 @@ contract OptimismGaugeIntegration is OptimismIntegrationBase {
                 results[i].amountIn, swapAmount, string(abi.encodePacked("Swap ", vm.toString(i), " input amount"))
             );
         }
+    }
+
+    // ==================== ROUTER VERIFICATION TESTS ====================
+
+    /// @notice Test that unverified routers cannot execute swaps
+    function testFork_RevertWhen_UnverifiedRouterAttemptsSwap() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Verify the Universal Router is initially not verified
+        gauge.setVerifiedRouter(UNIVERSAL_ROUTER, false);
+        assertFalse(gauge.verifiedRouters(UNIVERSAL_ROUTER), "Universal Router should not be verified");
+
+        address externalUser = makeAddr("externalUser");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+
+        // ---- Act & Assert ----
+        // Attempt swap through unverified Universal Router - should revert with SuperDCAGauge__UnauthorizedRouter
+        SwapParams memory swapParams = _prepareSwapParams(key, externalUser, false);
+
+        // Prepare swap execution data using struct
+        SwapExecution memory execution = _prepareSwapExecution(key, uint128(swapAmount), 0, false);
+
+        // Execute the swap
+        vm.prank(externalUser);
+        vm.expectRevert(); // Unverified router should revert
+        universalRouter.execute(execution.commands, execution.inputs, swapParams.deadline);
+    }
+
+    // ==================== DISTRIBUTION AND SETTLEMENT TESTS ====================
+
+    /// @notice Test that external user swaps trigger distribution and settlement
+    function testFork_ExternalSwap_TriggersDistributionAndSettlement() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 50e18, 50e18);
+
+        // List the token and stake to enable rewards
+        uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
+        listing.list(nftId);
+
+        vm.startPrank(user1);
+        IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
+        staking.stake(WETH, STAKE_AMOUNT);
+        vm.stopPrank();
+
+        // Simulate time passing for rewards to accrue
+        uint256 timePassed = 3600; // 1 hour
+        _simulateTimePass(timePassed);
+
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 initialPoolManagerBalance = IERC20(DCA_TOKEN).balanceOf(address(poolManager));
+        uint256 initialLastMinted = staking.lastMinted();
+
+        // Calculate expected rewards
+        uint256 mintRate = staking.mintRate();
+        uint256 expectedTotalMint = timePassed * mintRate;
+        uint256 expectedDevShare = expectedTotalMint / 2;
+        uint256 expectedCommunityShare = expectedTotalMint - expectedDevShare;
+
+        // Prepare external user for swap
+        address externalUser = makeAddr("externalSwapper");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+
+        // ---- Act ----
+        // Execute swap as external user - this should trigger distribution
+        _executeV4Swap(key, uint128(swapAmount), 0, externalUser, false);
+
+        // ---- Assert ----
+        // Verify developer received exactly 50% of minted tokens (with rounding tolerance)
+        uint256 devBalanceAfter = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 actualDevShare = devBalanceAfter - initialDevBalance;
+
+        assertApproxEqRel(
+            actualDevShare,
+            expectedDevShare,
+            1e11, // 0.00001% tolerance
+            "Developer should receive exactly 50% of minted tokens (within rounding)"
+        );
+
+        // Verify the community share (remaining 50%) was donated to the pool
+        uint256 poolManagerBalanceAfter = IERC20(DCA_TOKEN).balanceOf(address(poolManager));
+        uint256 poolManagerGains = poolManagerBalanceAfter - initialPoolManagerBalance - swapAmount;
+
+        assertApproxEqRel(
+            poolManagerGains,
+            expectedCommunityShare,
+            1e11, // 0.00001% tolerance (slightly wider due to swap flow complexity)
+            "PoolManager should receive community share (50%) via donation"
+        );
+
+        // Verify lastMinted was updated
+        assertGt(staking.lastMinted(), initialLastMinted, "Last minted time should be updated");
+
+        // Verify external fee was applied
+        assertEq(gauge.externalFee(), gauge.EXTERNAL_POOL_FEE(), "External fee should be applied");
+    }
+
+    /// @notice Test that internal user swaps do NOT trigger distribution
+    function testFork_InternalSwap_DoesNotTriggerDistribution() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Setup staking with rewards
+        uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
+        listing.list(nftId);
+
+        vm.startPrank(user1);
+        IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
+        staking.stake(WETH, STAKE_AMOUNT);
+        vm.stopPrank();
+
+        // Simulate time passing
+        _simulateTimePass(1800);
+
+        // Setup internal user
+        address internalUser = makeAddr("internalSwapper");
+        gauge.setInternalAddress(internalUser, true);
+
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 initialLastMinted = staking.lastMinted();
+
+        // Prepare internal user for swap
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, internalUser);
+
+        // ---- Act ----
+        // Execute swap as internal user - should NOT trigger distribution
+        _executeV4Swap(key, uint128(swapAmount), 0, internalUser, false);
+
+        // ---- Assert ----
+        // Verify NO distribution occurred
+        assertEq(
+            IERC20(DCA_TOKEN).balanceOf(deployer),
+            initialDevBalance,
+            "Developer balance should not change for internal swap"
+        );
+
+        // Verify lastMinted was NOT updated
+        assertEq(staking.lastMinted(), initialLastMinted, "Last minted time should not change for internal swap");
+
+        // Verify internal fee was applied (0%)
+        assertEq(gauge.internalFee(), gauge.INTERNAL_POOL_FEE(), "Internal fee should be 0%");
+    }
+
+    /// @notice Test that keeper swaps do NOT trigger distribution
+    function testFork_KeeperSwap_DoesNotTriggerDistribution() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Setup staking with rewards
+        uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
+        listing.list(nftId);
+
+        vm.startPrank(user1);
+        IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
+        staking.stake(WETH, STAKE_AMOUNT);
+        vm.stopPrank();
+
+        // Simulate time passing
+        _simulateTimePass(1800);
+
+        // Setup keeper user
+        address keeperUser = makeAddr("keeperSwapper");
+        deal(DCA_TOKEN, keeperUser, 10000e18);
+        vm.startPrank(keeperUser);
+        IERC20(DCA_TOKEN).approve(address(gauge), 5000e18);
+        gauge.becomeKeeper(5000e18);
+        vm.stopPrank();
+
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 initialLastMinted = staking.lastMinted();
+
+        // Prepare keeper for swap
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, keeperUser);
+
+        // ---- Act ----
+        // Execute swap as keeper - should NOT trigger distribution
+        _executeV4Swap(key, uint128(swapAmount), 0, keeperUser, false);
+
+        // ---- Assert ----
+        // Verify NO distribution occurred
+        assertEq(
+            IERC20(DCA_TOKEN).balanceOf(deployer),
+            initialDevBalance,
+            "Developer balance should not change for keeper swap"
+        );
+
+        // Verify lastMinted was NOT updated
+        assertEq(staking.lastMinted(), initialLastMinted, "Last minted time should not change for keeper swap");
+
+        // Verify keeper fee was applied
+        assertEq(gauge.keeperFee(), gauge.KEEPER_POOL_FEE(), "Keeper fee should be 0.10%");
+    }
+
+    /// @notice Test external swap with no rewards does not revert
+    function testFork_ExternalSwap_WithNoRewards() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Don't stake anything, so there are no rewards to distribute
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+
+        // Prepare external user for swap
+        address externalUser = makeAddr("externalNoRewards");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+
+        // ---- Act ----
+        // Swap should not revert even with 0 rewards
+        _executeV4Swap(key, uint128(swapAmount), 0, externalUser, false);
+
+        // ---- Assert ----
+        // Verify no tokens were distributed
+        assertEq(
+            IERC20(DCA_TOKEN).balanceOf(deployer), initialDevBalance, "No rewards should be distributed with no stake"
+        );
+    }
+
+    /// @notice Test multiple external swaps accumulate distributions correctly
+    function testFork_MultipleExternalSwaps_AccumulateDistributions() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 30e18, 30e18);
+
+        // Setup staking
+        uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
+        listing.list(nftId);
+
+        vm.startPrank(user1);
+        IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
+        staking.stake(WETH, STAKE_AMOUNT);
+        vm.stopPrank();
+
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+        address externalUser = makeAddr("externalMultiSwap");
+        uint256 swapAmount = 0.5e18;
+
+        // ---- Act ----
+        // First swap after some time
+        _simulateTimePass(900); // 15 minutes
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+        _executeV4Swap(key, uint128(swapAmount), 0, externalUser, false);
+
+        uint256 devBalanceAfterFirst = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 firstDistribution = devBalanceAfterFirst - initialDevBalance;
+
+        // Second swap after more time
+        _simulateTimePass(900); // Another 15 minutes
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+        _executeV4Swap(key, uint128(swapAmount), 0, externalUser, false);
+
+        uint256 devBalanceAfterSecond = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 totalDistribution = devBalanceAfterSecond - initialDevBalance;
+
+        // ---- Assert ----
+        assertGt(firstDistribution, 0, "First distribution should occur");
+        assertGt(totalDistribution, firstDistribution, "Total distribution should accumulate");
+    }
+
+    /// @notice Test distribution when mint fails (DoS protection)
+    function testFork_ExternalSwap_WhenMintFails() public {
+        // ---- Arrange ----
+        (PoolKey memory key,) = _setupSwapTestPool(WETH, 20e18, 20e18);
+
+        // Setup staking
+        uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
+        listing.list(nftId);
+
+        vm.startPrank(user1);
+        IERC20(DCA_TOKEN).approve(address(staking), STAKE_AMOUNT);
+        staking.stake(WETH, STAKE_AMOUNT);
+        vm.stopPrank();
+
+        _simulateTimePass(1800);
+
+        // Remove minting permissions to cause mint to fail
+        gauge.returnSuperDCATokenOwnership();
+
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+
+        // Prepare external user
+        address externalUser = makeAddr("externalMintFail");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1), 0, swapAmount, externalUser);
+
+        // ---- Act ----
+        // Swap should not revert even though mint will fail
+        _executeV4Swap(key, uint128(swapAmount), 0, externalUser, false);
+
+        // ---- Assert ----
+        // Verify no tokens were minted
+        assertEq(IERC20(DCA_TOKEN).balanceOf(deployer), initialDevBalance, "No tokens should be minted when mint fails");
+
+        // Verify lastMinted was still updated (rewards tracking continues)
+        assertGt(staking.lastMinted(), 0, "lastMinted should still update even when mint fails");
+    }
+
+    /// @notice Test distribution behavior with multiple pools
+    function testFork_ExternalSwap_MultiplePoolDistribution() public {
+        // ---- Arrange ----
+        // Create WETH pool and get NFT for listing
+        uint160 sqrtPriceX96 = _getCurrentPrice();
+        (PoolKey memory wethKey,) = _createTestPool(WETH, int24(60), sqrtPriceX96);
+        uint256 wethNftId = _createFullRangePosition(wethKey, 2000e18, 2000e18, address(this));
+
+        // List WETH token
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), wethNftId);
+        listing.list(wethNftId);
+
+        // Create WBTC pool and get NFT for listing
+        address WBTC = 0x68f180fcCe6836688e9084f035309E29Bf0A2095; // WBTC on Optimism
+        deal(WBTC, address(this), 100e8); // 100 WBTC (8 decimals)
+        IERC20(WBTC).approve(POSITION_MANAGER_V4, type(uint256).max);
+
+        (PoolKey memory wbtcKey,) = _createTestPool(WBTC, int24(60), sqrtPriceX96);
+        uint256 wbtcNftId = _createFullRangePosition(wbtcKey, 2000e18, 2000e18, address(this));
+        // List WBTC token
+        IERC721(POSITION_MANAGER_V4).approve(address(listing), wbtcNftId);
+        listing.list(wbtcNftId);
+
+        // Stake with proportion: 75% in WETH, 25% in WBTC
+        uint256 totalStake = 100e18;
+        vm.startPrank(user1);
+        IERC20(DCA_TOKEN).approve(address(staking), totalStake);
+        staking.stake(WETH, (totalStake * 75) / 100); // 75e18
+        staking.stake(WBTC, (totalStake * 25) / 100); // 25e18
+        vm.stopPrank();
+
+        uint256 timePassed = 1800; // 30 minutes
+        _simulateTimePass(timePassed);
+
+        uint256 initialDevBalance = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 initialPoolManagerBalance = IERC20(DCA_TOKEN).balanceOf(address(poolManager));
+
+        // Prepare external user for WETH pool swap
+        address externalUser = makeAddr("externalMultiPool");
+        uint256 swapAmount = 1e18;
+        _prepareSwapTokens(
+            Currency.unwrap(wethKey.currency0), Currency.unwrap(wethKey.currency1), 0, swapAmount, externalUser
+        );
+
+        // ---- Act ----
+        // Swap on WETH pool - only WETH pool rewards should be distributed (75% of total)
+        _executeV4Swap(wethKey, uint128(swapAmount), 0, externalUser, false);
+
+        // ---- Assert ----
+        uint256 devBalanceAfter = IERC20(DCA_TOKEN).balanceOf(deployer);
+        uint256 poolManagerBalanceAfter = IERC20(DCA_TOKEN).balanceOf(address(poolManager));
+
+        // Calculate expected rewards:
+        // Total mint = timePassed * mintRate
+        // WETH pool share = 75% (75e18 out of 100e18 total stake)
+        // Developer share = 50% of WETH pool rewards
+        // Community share = 50% of WETH pool rewards (donated to pool)
+        uint256 mintRate = staking.mintRate();
+        uint256 totalMintAmount = timePassed * mintRate;
+        uint256 wethPoolShare = (totalMintAmount * 75) / 100; // 75% stake in WETH
+        uint256 expectedDevShare = wethPoolShare / 2; // Developer gets 50% of pool rewards
+        uint256 expectedCommunityShare = wethPoolShare - expectedDevShare; // Community gets remaining 50%
+
+        uint256 actualDevShare = devBalanceAfter - initialDevBalance;
+
+        // Verify developer received correct proportion (allow 0.00001% rounding error)
+        assertApproxEqRel(
+            actualDevShare,
+            expectedDevShare,
+            1e11, // 0.00001% tolerance
+            "Developer should receive 50% of WETH pool rewards (which is 75% of total stake)"
+        );
+
+        // Verify PoolManager received the community share via donation
+        // Note: The PoolManager's balance changes during swaps as tokens flow through it,
+        // but the donation should result in a net increase approximately equal to the community share
+        uint256 poolManagerGains = poolManagerBalanceAfter - initialPoolManagerBalance - swapAmount;
+
+        // The PoolManager's gain should be at least the community share (donation)
+        // We use a wider tolerance here because swap flows can affect the balance
+        assertApproxEqRel(
+            poolManagerGains,
+            expectedCommunityShare,
+            1e11, // 0.00001% tolerance (slightly wider due to swap flow complexity)
+            "PoolManager should receive community share (50% of WETH pool rewards) via donation"
+        );
     }
 
     // Events for testing

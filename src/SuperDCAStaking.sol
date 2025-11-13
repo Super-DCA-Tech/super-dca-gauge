@@ -162,12 +162,14 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
 
     /**
      * @notice Updates the mint rate used for global reward index growth.
-     * @dev Callable by either the contract owner or the authorized gauge for operational
-     *      flexibility. Higher mint rates increase reward accumulation speed for all stakers.
+     * @dev Only callable by the contract owner. Higher mint rates increase reward accumulation
+     *      speed for all stakers. Applies old rewards before updating the rate to maintain
+     *      the invariant that past time is priced at the old rate.
      * @param newMintRate The new mint rate in tokens per second.
      */
     function setMintRate(uint256 newMintRate) external override {
-        if (msg.sender != owner() && msg.sender != gauge) revert SuperDCAStaking__NotAuthorized();
+        _checkOwner();
+        _updateRewardIndex(); // Apply old rate to past interval before changing
         mintRate = newMintRate;
         emit MintRateUpdated(newMintRate);
     }
@@ -179,18 +181,38 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
      * @dev The 1e18 scaling factor provides mathematical precision for fractional rewards.
      */
     function _updateRewardIndex() internal {
-        // Return early if no stakes exist or no time has passed
-        if (totalStakedAmount == 0) return;
-        uint256 elapsed = block.timestamp - lastMinted;
+        uint256 current = block.timestamp;
+        uint256 elapsed = current - lastMinted;
         if (elapsed == 0) return;
+
+        if (totalStakedAmount == 0) {
+            // Move the clock forward during empty periods
+            lastMinted = current;
+            return;
+        }
 
         // Calculate mint amount based on elapsed time and mint rate
         uint256 mintAmount = elapsed * mintRate;
 
         // Update global index: previous_index + (mint_amount * 1e18 / total_staked)
         rewardIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
-        lastMinted = block.timestamp;
+        lastMinted = current;
         emit RewardIndexUpdated(rewardIndex);
+    }
+
+    /**
+     * @notice Accumulates pending rewards for a token bucket before updating its last reward index.
+     * @dev This ensures rewards are not lost when stake/unstake operations occur before accrueReward.
+     * @param info The token reward info storage reference to update.
+     */
+    function _accumulatePendingRewards(TokenRewardInfo storage info) internal {
+        // Only accumulate if there are staked tokens and a delta exists
+        if (info.stakedAmount > 0) {
+            uint256 delta = rewardIndex - info.lastRewardIndex;
+            if (delta > 0) {
+                info.pendingReward += Math.mulDiv(info.stakedAmount, delta, 1e18);
+            }
+        }
     }
 
     // ============ User Staking Functions ============
@@ -217,6 +239,10 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
 
         // Update token bucket accounting and user stakes
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
+        
+        // Accumulate pending rewards before updating lastRewardIndex
+        _accumulatePendingRewards(info);
+        
         info.stakedAmount += amount;
         info.lastRewardIndex = rewardIndex;
 
@@ -245,6 +271,9 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
 
         // Update global reward index to current time
         _updateRewardIndex();
+
+        // Accumulate pending rewards before updating lastRewardIndex
+        _accumulatePendingRewards(info);
 
         // Update token bucket accounting and user stakes
         info.stakedAmount -= amount;
@@ -278,17 +307,16 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
         _updateRewardIndex();
 
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
-        if (info.stakedAmount == 0) return 0;
 
-        // Calculate reward delta for the specific token bucket
-        uint256 delta = rewardIndex - info.lastRewardIndex;
-        if (delta == 0) return 0;
+        // Accumulate pending rewards before updating lastRewardIndex
+        _accumulatePendingRewards(info);
 
-        // Compute and return reward amount for distribution
-        rewardAmount = Math.mulDiv(info.stakedAmount, delta, 1e18);
+        rewardAmount = info.pendingReward;
 
-        // Update the token's last reward index to current index
+        // Update the token's last reward index to current index and clear pending rewards
         info.lastRewardIndex = rewardIndex;
+        info.pendingReward = 0;
+
         return rewardAmount;
     }
 
@@ -304,15 +332,22 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
      */
     function previewPending(address token) external view override returns (uint256) {
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
-        if (info.stakedAmount == 0 || totalStakedAmount == 0) return 0;
-
-        uint256 currentIndex = rewardIndex;
-        uint256 elapsed = block.timestamp - lastMinted;
-        if (elapsed > 0) {
-            uint256 mintAmount = elapsed * mintRate;
-            currentIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
+        
+        // Start with accumulated pending rewards
+        uint256 pending = info.pendingReward;
+        
+        // Add rewards for current period if there are staked tokens and total staked amount
+        if (info.stakedAmount > 0 && totalStakedAmount > 0) {
+            uint256 currentIndex = rewardIndex;
+            uint256 elapsed = block.timestamp - lastMinted;
+            if (elapsed > 0) {
+                uint256 mintAmount = elapsed * mintRate;
+                currentIndex += Math.mulDiv(mintAmount, 1e18, totalStakedAmount);
+            }
+            pending += Math.mulDiv(info.stakedAmount, currentIndex - info.lastRewardIndex, 1e18);
         }
-        return Math.mulDiv(info.stakedAmount, currentIndex - info.lastRewardIndex, 1e18);
+        
+        return pending;
     }
 
     /**

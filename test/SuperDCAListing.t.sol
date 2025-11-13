@@ -169,7 +169,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
         nfpId = positionManagerV4.nextTokenId();
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp);
     }
 
     function _mintNarrow(PoolKey memory _key, int24 lower, int24 upper, uint256 amount0, uint256 amount1, address owner)
@@ -194,7 +194,7 @@ contract SuperDCAListingTest is Test, Deployers {
 
         nfpId = positionManagerV4.nextTokenId();
         vm.prank(owner);
-        positionManagerV4.modifyLiquidities(calls, block.timestamp + 60);
+        positionManagerV4.modifyLiquidities(calls, block.timestamp);
     }
 
     function _accrueFeesByDonation(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
@@ -205,6 +205,80 @@ contract SuperDCAListingTest is Test, Deployers {
         IERC20(t0).approve(address(donateRouter), amt0);
         IERC20(t1).approve(address(donateRouter), amt1);
         donateRouter.donate(_key, amt0, amt1, "");
+    }
+
+    function _mintFullRangeWithNativeETH(PoolKey memory _key, uint256 amount0, uint256 amount1, address owner)
+        internal
+        returns (uint256 nfpId)
+    {
+        // Fund and approve for non-native token only
+        if (!_key.currency0.isAddressZero()) {
+            _fundAndApprove(owner, Currency.unwrap(_key.currency0), amount0);
+        } else {
+            // Give owner ETH for native token
+            vm.deal(owner, amount0 + 1 ether); // Extra for gas
+        }
+        
+        if (!_key.currency1.isAddressZero()) {
+            _fundAndApprove(owner, Currency.unwrap(_key.currency1), amount1);
+        } else {
+            // Give owner ETH for native token
+            vm.deal(owner, amount1 + 1 ether); // Extra for gas
+        }
+
+        int24 lower = TickMath.minUsableTick(_key.tickSpacing);
+        int24 upper = TickMath.maxUsableTick(_key.tickSpacing);
+        uint256 liquidity = _liquidityForAmounts(_key, amount0, amount1);
+
+        Plan memory planner = Planner.init();
+        planner = planner.add(
+            Actions.MINT_POSITION,
+            abi.encode(_key, lower, upper, liquidity, type(uint128).max, type(uint128).max, owner, bytes(""))
+        );
+        bytes memory calls = planner.finalizeModifyLiquidityWithClose(_key);
+
+        nfpId = positionManagerV4.nextTokenId();
+        
+        // Calculate ETH value to send
+        uint256 ethValue = 0;
+        if (_key.currency0.isAddressZero()) {
+            ethValue = amount0;
+        } else if (_key.currency1.isAddressZero()) {
+            ethValue = amount1;
+        }
+        
+        vm.prank(owner);
+        positionManagerV4.modifyLiquidities{value: ethValue}(calls, block.timestamp);
+    }
+
+    function _accrueFeesByDonationWithNativeETH(PoolKey memory _key, uint256 amt0, uint256 amt1) internal {
+        address t0 = Currency.unwrap(_key.currency0);
+        address t1 = Currency.unwrap(_key.currency1);
+        
+        // Deal and approve non-native tokens
+        if (!_key.currency0.isAddressZero()) {
+            deal(t0, address(this), amt0);
+            IERC20(t0).approve(address(donateRouter), amt0);
+        } else {
+            vm.deal(address(this), amt0 + 1 ether);
+        }
+        
+        if (!_key.currency1.isAddressZero()) {
+            deal(t1, address(this), amt1);
+            IERC20(t1).approve(address(donateRouter), amt1);
+        } else {
+            vm.deal(address(this), amt1 + 1 ether);
+        }
+        
+        // Calculate ETH value to send
+        uint256 ethValue = 0;
+        if (_key.currency0.isAddressZero()) {
+            ethValue = amt0;
+        } else if (_key.currency1.isAddressZero()) {
+            ethValue = amt1;
+        }
+        
+        donateRouter.donate{value: ethValue}(_key, amt0, amt1, "");
     }
 
     function _expectedNonDcaToken(PoolKey memory _key) internal view returns (address) {
@@ -289,6 +363,11 @@ contract List is SuperDCAListingTest {
 
         // assign hook to key and initialize pool
         key = _initPoolWithHook(key, hook);
+        
+        // Transfer ownership to test contract for list tests
+        vm.prank(developer);
+        listing.transferOwnership(address(this));
+        listing.acceptOwnership();
     }
 
     // Deterministically deploy a MockERC20Token at a specific address using deployCodeTo
@@ -324,7 +403,7 @@ contract List is SuperDCAListingTest {
         address expectedToken = _expectedNonDcaToken(keyWithDca);
         vm.expectEmit(true, true, false, true);
         emit TokenListed(expectedToken, nfpId, keyWithDca);
-        listing.list(nfpId, keyWithDca);
+        listing.list(nfpId);
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
@@ -334,7 +413,7 @@ contract List is SuperDCAListingTest {
     function test_RevertWhen_IncorrectHookAddress() public {
         // Initialize pool with one hook, but configure listing with a different expected hook
         IHooks hookB = _deployHookWithSalt(0x4243);
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.setHookAddress(hookB);
 
         // Use the already-initialized pool key with hookA
@@ -343,12 +422,12 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
 
         vm.expectRevert(SuperDCAListing.SuperDCAListing__IncorrectHookAddress.selector);
-        listing.list(nfpId, wrongHookKey);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_NftIdIsZero() public {
         vm.expectRevert(SuperDCAListing.SuperDCAListing__UniswapTokenNotSet.selector);
-        listing.list(0, key);
+        listing.list(0);
     }
 
     function test_RevertWhen_PositionIsNotFullRange() public {
@@ -357,7 +436,7 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_PartialRange_LowerWrong() public {
@@ -366,7 +445,7 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintNarrow(key, minTick + key.tickSpacing, maxTick, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_PartialRange_UpperWrong() public {
@@ -375,7 +454,7 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintNarrow(key, minTick, maxTick - key.tickSpacing, 1_000e18, 1_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__NotFullRangePosition.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_LiquidityBelowMinimum() public {
@@ -383,27 +462,35 @@ contract List is SuperDCAListingTest {
         uint256 nfpId = _mintFullRange(key, 1e9, 1e9, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__LowLiquidity.selector);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
     }
 
     function test_RevertWhen_TokenAlreadyListed() public {
         uint256 id1 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), id1);
-        listing.list(id1, key);
+        listing.list(id1);
 
         uint256 id2 = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), id2);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__TokenAlreadyListed.selector);
-        listing.list(id2, key);
+        listing.list(id2);
     }
 
-    function test_RevertWhen_MismatchedPoolKeyProvided() public {
-        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
+    function test_RevertWhen_CallerIsNotOwner() public {
+        // Create a new address that is not the owner
+        address unauthorizedCaller = address(0x9999);
+        
+        // Mint a full-range NFP owned by the unauthorized caller
+        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, unauthorizedCaller);
+        
+        // Approve the listing contract to transfer the NFP and attempt to list
+        vm.startPrank(unauthorizedCaller);
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        PoolKey memory provided = key;
-        provided.tickSpacing = 30;
-        vm.expectRevert(SuperDCAListing.SuperDCAListing__MismatchedPoolKey.selector);
-        listing.list(nfpId, provided);
+        
+        // Attempt to list without being the owner
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, unauthorizedCaller));
+        listing.list(nfpId);
+        vm.stopPrank();
     }
 
     function test_RegistersTokenAndTransfersNfp_When_DcaTokenIsCurrency0() public {
@@ -420,7 +507,7 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         address expectedToken = _expectedNonDcaToken(keyWithDca0);
 
-        listing.list(nfpId, keyWithDca0);
+        listing.list(nfpId);
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
@@ -441,7 +528,7 @@ contract List is SuperDCAListingTest {
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
         address expectedToken = _expectedNonDcaToken(keyWithDca1);
 
-        listing.list(nfpId, keyWithDca1);
+        listing.list(nfpId);
 
         assertTrue(listing.isTokenListed(expectedToken));
         assertEq(listing.tokenOfNfp(nfpId), expectedToken);
@@ -465,13 +552,18 @@ contract CollectFees is SuperDCAListingTest {
         vm.prank(developer);
         SuperDCAGauge(address(hook)).setStaking(address(fake));
         key = _initPoolWithHook(key, hook);
+        
+        // Transfer ownership to test contract for list tests
+        vm.prank(developer);
+        listing.transferOwnership(address(this));
+        listing.acceptOwnership();
     }
 
     function test_CollectFees_IncreasesRecipientBalances_When_CalledByAdmin() public {
         // Mint and list
         uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
 
         // Accrue fees via donation
         address token0Addr = Currency.unwrap(key.currency0);
@@ -484,7 +576,7 @@ contract CollectFees is SuperDCAListingTest {
         uint256 b0 = IERC20(token0Addr).balanceOf(recipient);
         uint256 b1 = IERC20(token1Addr).balanceOf(recipient);
 
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.collectFees(nfpId, recipient);
 
         assertGt(IERC20(token0Addr).balanceOf(recipient), b0);
@@ -495,7 +587,7 @@ contract CollectFees is SuperDCAListingTest {
         // Mint and list
         uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, address(this));
         IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        listing.list(nfpId, key);
+        listing.list(nfpId);
 
         // Accrue fees via donation to ensure non-zero collection
         uint256 expected0 = 100e18;
@@ -511,26 +603,106 @@ contract CollectFees is SuperDCAListingTest {
         // 1 wei is lost due to precision in the donation/collection process (TAKE_PAIR action)
         emit FeesCollected(recipient, token0Addr, token1Addr, expected0 - 1, expected1 - 1);
 
-        vm.prank(developer);
+        // Test contract is the owner, so call directly
         listing.collectFees(nfpId, recipient);
     }
 
-    function test_RevertWhen_CollectFeesCalledByNonAdmin(address _notAdmin) public {
-        vm.assume(_notAdmin != developer && _notAdmin != address(0));
-        vm.prank(_notAdmin);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notAdmin));
+    function test_RevertWhen_CollectFeesCalledByNonOwner(address _notOwner) public {
+        vm.assume(_notOwner != address(this) && _notOwner != address(0));
+        vm.prank(_notOwner);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _notOwner));
         listing.collectFees(1, address(0x1234));
     }
 
     function test_RevertWhen_CollectFeesWithZeroNfpId() public {
-        vm.prank(developer);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__UniswapTokenNotSet.selector);
         listing.collectFees(0, address(0x1234));
     }
 
     function test_RevertWhen_CollectFeesWithZeroRecipient() public {
-        vm.prank(developer);
         vm.expectRevert(SuperDCAListing.SuperDCAListing__InvalidAddress.selector);
         listing.collectFees(1, address(0));
+    }
+
+    /// @dev Test that collectFees works with native ETH (address(0)) as token0
+    /// Native ETH can only be currency0 since address(0) is the minimum address
+    function test_CollectFees_WorksWithNativeETHAsToken0() public {
+        // Create a pool key with native ETH as token0
+        // Native ETH (address(0)) must be currency0 since address(0) < any other address
+        PoolKey memory nativeKey = PoolKey({
+            currency0: CurrencyLibrary.ADDRESS_ZERO,
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
+        });
+
+        // Deploy and set hook for native pool
+        IHooks hook = _deployHook();
+        nativeKey = _initPoolWithHook(nativeKey, hook);
+        // Test contract is the owner, so call directly
+        listing.setHookAddress(hook);
+
+        // Mint position with native ETH and list
+        address owner = address(this);
+        uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
+        
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        listing.list(nfpId);
+
+        // Accrue fees via donation
+        _accrueFeesByDonationWithNativeETH(nativeKey, 0.1 ether, 100e18);
+
+        // Record recipient balances before collecting
+        address recipient = address(0x1234);
+        uint256 ethBalanceBefore = recipient.balance;
+        uint256 tokenBalanceBefore = dcaToken.balanceOf(recipient);
+
+        // Test contract is the owner, so call directly
+        listing.collectFees(nfpId, recipient);
+
+        // Verify balances increased (fees collected successfully)
+        assertGt(recipient.balance, ethBalanceBefore, "Native ETH fees should be collected");
+        assertGt(dcaToken.balanceOf(recipient), tokenBalanceBefore, "DCA token fees should be collected");
+    }
+
+    /// @dev Test that collectFees emits correct event with native ETH
+    function test_EmitsFeesCollected_WithNativeETH() public {
+        // Create a pool key with native ETH as token0
+        PoolKey memory nativeKey = PoolKey({
+            currency0: CurrencyLibrary.ADDRESS_ZERO,
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
+        });
+
+        // Deploy and set hook for native pool
+        IHooks hook = _deployHook();
+        nativeKey = _initPoolWithHook(nativeKey, hook);
+        // Test contract is the owner, so call directly
+        listing.setHookAddress(hook);
+
+        // Mint position with native ETH and list
+        address owner = address(this);
+        uint256 nfpId = _mintFullRangeWithNativeETH(nativeKey, 2_000e18, 2_000e18, owner);
+        
+        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
+        listing.list(nfpId);
+
+        // Accrue fees via donation
+        uint256 expectedETH = 0.1 ether;
+        uint256 expectedToken = 100e18;
+        _accrueFeesByDonationWithNativeETH(nativeKey, expectedETH, expectedToken);
+
+        address recipient = address(0xBEEF);
+
+        // Expect the FeesCollected event with native ETH (address(0))
+        vm.expectEmit();
+        // 1 wei is lost due to precision in the donation/collection process
+        emit FeesCollected(recipient, address(0), address(dcaToken), expectedETH - 1, expectedToken - 1);
+
+        // Test contract is the owner, so call directly
+        listing.collectFees(nfpId, recipient);
     }
 }

@@ -30,7 +30,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
 
         // ---- Act ----
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // ---- Assert ----
         _assertTokenListed(WETH, nftId);
@@ -53,7 +53,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
 
         vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__LowLiquidity()"));
-        listing.list(nftId, key);
+        listing.list(nftId);
     }
 
     /// @notice Test listing fails with incorrect hook address
@@ -78,7 +78,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
 
         // ---- Act & Assert ----
         vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__IncorrectHookAddress()"));
-        listing.list(nftId, wrongKey); // Will fail during validation
+        listing.list(nftId);
     }
 
     /// @notice Test listing fails for already listed token
@@ -91,7 +91,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         uint256 nftId1 = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId1);
-        listing.list(nftId1, key);
+        listing.list(nftId1);
 
         // Create second position for same token
         uint256 nftId2 = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
@@ -100,7 +100,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId2);
 
         vm.expectRevert(abi.encodeWithSignature("SuperDCAListing__TokenAlreadyListed()"));
-        listing.list(nftId2, key);
+        listing.list(nftId2);
     }
 
     /// @notice Test minimum liquidity update by owner
@@ -165,7 +165,7 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(key, POSITION_AMOUNT0, POSITION_AMOUNT1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         // Simulate some fees accumulation by time passing and trading activity
         _simulateTimePass(3600); // 1 hour
@@ -244,11 +244,11 @@ contract OptimismListingIntegration is OptimismIntegrationBase {
         // ---- Act ----
         // List WETH
         IERC721(POSITION_MANAGER_V4).approve(address(listing), wethNftId);
-        listing.list(wethNftId, wethKey);
+        listing.list(wethNftId);
 
         // List mock token
         IERC721(POSITION_MANAGER_V4).approve(address(listing), mockNftId);
-        listing.list(mockNftId, mockKey);
+        listing.list(mockNftId);
 
         // ---- Assert ----
         _assertTokenListed(WETH, wethNftId);

@@ -54,6 +54,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     uint24 public constant INTERNAL_POOL_FEE = 0; // 0%
     uint24 public constant KEEPER_POOL_FEE = 1000; // 0.10%
     uint24 public constant EXTERNAL_POOL_FEE = 5000; // 0.50%
+    int24 public constant REQUIRED_TICK_SPACING = 60; // Required tick spacing to prevent duplicate pools
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
     /**
@@ -116,6 +117,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /// @dev Called during liquidity operations to accrue and distribute rewards.
     ISuperDCAStaking public staking;
 
+    /// @notice Mapping of router addresses that are trusted to implement msgSender() correctly.
+    /// @dev Only verified routers can be queried for the actual transaction originator.
+    mapping(address => bool) public verifiedRouters;
+
     // ============ Events ============
 
     /// @notice Emitted when an address's internal status is updated.
@@ -149,6 +154,11 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     /// @param newListing The address of the new listing contract.
     event ListingUpdated(address indexed oldListing, address indexed newListing);
 
+    /// @notice Emitted when a router's verification status is updated.
+    /// @param router The address of the router whose status was changed.
+    /// @param isVerified True if the router is now verified, false otherwise.
+    event VerifiedRouterUpdated(address indexed router, bool isVerified);
+
     // ============ Custom Errors ============
 
     /// @notice Thrown when a pool is not configured with dynamic fees.
@@ -177,6 +187,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
 
     /// @notice Thrown when a zero address is provided where a valid address is required.
     error SuperDCAGauge__ZeroAddress();
+
+    /// @notice Thrown when a pool's tick spacing is not the required value.
+    error SuperDCAGauge__InvalidTickSpacing();
+
+    /// @notice Thrown when a router is not authorized to swap through the hook.
+    error SuperDCAGauge__UnauthorizedRouter();
 
     /**
      * @notice Initializes the SuperDCAGauge hook with core addresses and default fee structure.
@@ -271,9 +287,10 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     }
 
     /**
-     * @notice Validates that pools using this hook include the SuperDCA token.
+     * @notice Validates that pools using this hook include the SuperDCA token and have the required tick spacing.
      * @dev Called before pool initialization to ensure only valid DCA pools use this hook.
      *      Prevents misconfiguration by requiring one currency to be the SuperDCA token.
+     *      Also restricts tick spacing to 60 to prevent duplicate pools with different tick spacing values.
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */
@@ -285,6 +302,9 @@ contract SuperDCAGauge is BaseHook, AccessControl {
     {
         if (superDCAToken != Currency.unwrap(key.currency0) && superDCAToken != Currency.unwrap(key.currency1)) {
             revert SuperDCAGauge__PoolMustIncludeSuperDCAToken();
+        }
+        if (key.tickSpacing != REQUIRED_TICK_SPACING) {
+            revert SuperDCAGauge__InvalidTickSpacing();
         }
         return BaseHook.beforeInitialize.selector;
     }
@@ -363,7 +383,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
             poolManager.settle();
         }
 
-        /// @dev: At this point, there are DCA tokens left in the hook for the other pools.
+        /// @dev At this point, there are DCA tokens left in the hook for the other pools.
     }
 
     /**
@@ -408,9 +428,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      *      - Internal addresses: Pay internalFee (typically 0%)
      *      - Current keeper: Pays keeperFee (typically 0.10%)
      *      - External users: Pay externalFee (typically 0.50%)
-     *
-     *      The function uses IMsgSender to get the actual message sender when called
-     *      through intermediary contracts like routers or position managers.
+     *      Queries msgSender() if the sender is a verified router.
      * @param sender The address that initiated the swap (may be a router/manager).
      * @return selector The function selector for successful execution.
      * @return delta Zero delta as this hook doesn't modify swap amounts.
@@ -418,12 +436,18 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      */
     function _beforeSwap(
         address sender,
-        PoolKey calldata, /* key */
+        PoolKey calldata key,
         IPoolManager.SwapParams calldata, /* params */
-        bytes calldata /* hookData */
-    ) internal view override returns (bytes4, BeforeSwapDelta, uint24) {
-        // Get the actual message sender (may differ from 'sender' when using routers)
-        address swapper = IMsgSender(sender).msgSender();
+        bytes calldata hookData
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        // Only allow verified routers to route through the hook (e.g. Universal Router)
+        address swapper;
+        if (verifiedRouters[sender]) {
+            swapper = IMsgSender(sender).msgSender();
+        } else {
+            revert SuperDCAGauge__UnauthorizedRouter();
+        }
+
         uint24 fee;
 
         // Determine fee tier based on swapper status
@@ -432,6 +456,7 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         } else if (swapper == keeper) {
             fee = keeperFee; // Typically 0.10% for keeper
         } else {
+            _handleDistributionAndSettlement(key, hookData);
             fee = externalFee; // Typically 0.50% for external users
         }
 
@@ -524,6 +549,20 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         if (_user == address(0)) revert SuperDCAGauge__ZeroAddress();
         isInternalAddress[_user] = _isInternal;
         emit InternalAddressUpdated(_user, _isInternal);
+    }
+
+    /**
+     * @notice Marks or unmarks a router as verified for msgSender() queries.
+     * @dev Only callable by MANAGER_ROLE. Verified routers are trusted to implement
+     *      the msgSender() interface correctly and will be queried for the actual
+     *      transaction originator during swaps. Reverts on zero address.
+     * @param _router The address of the router to update.
+     * @param _isVerified True to mark as verified, false to unmark.
+     */
+    function setVerifiedRouter(address _router, bool _isVerified) external onlyRole(MANAGER_ROLE) {
+        if (_router == address(0)) revert SuperDCAGauge__ZeroAddress();
+        verifiedRouters[_router] = _isVerified;
+        emit VerifiedRouterUpdated(_router, _isVerified);
     }
 
     /**

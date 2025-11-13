@@ -5,6 +5,7 @@ interface ISuperDCAStaking {
     struct TokenRewardInfo {
         uint256 stakedAmount;
         uint256 lastRewardIndex;
+        uint256 pendingReward;
     }
 
     // User actions

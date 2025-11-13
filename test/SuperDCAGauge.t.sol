@@ -20,6 +20,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -57,7 +58,7 @@ contract SuperDCAGaugeTest is Test, Deployers {
                 currency0: Currency.wrap(tokenA),
                 currency1: Currency.wrap(tokenB),
                 fee: fee,
-                tickSpacing: 60, // hardcoded tick spacing used everywhere
+                tickSpacing: 60, // Required tick spacing to prevent duplicate pools
                 hooks: IHooks(hook)
             })
             : PoolKey({
@@ -219,6 +220,37 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
         // TODO: Handle verify WrappedErrors
         vm.expectRevert();
         manager.initialize(wrongTokenKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_invalidTickSpacing() public {
+        // Create a pool key with invalid tickSpacing (not 60)
+        // This test verifies that attackers cannot create duplicate pools with different tickSpacing
+        PoolKey memory invalidTickSpacingKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 10, // Invalid - must be 60
+            hooks: IHooks(hook)
+        });
+        
+        // Expect revert with InvalidTickSpacing error
+        vm.expectRevert();
+        manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
+    }
+
+    function test_beforeInitialize_revert_invalidTickSpacing_negative() public {
+        // Test with another invalid tickSpacing value
+        PoolKey memory invalidTickSpacingKey = PoolKey({
+            currency0: Currency.wrap(address(weth)),
+            currency1: Currency.wrap(address(dcaToken)),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 1, // Invalid - must be 60
+            hooks: IHooks(hook)
+        });
+        
+        // Expect revert with InvalidTickSpacing error
+        vm.expectRevert();
+        manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
     }
 }
 
@@ -881,6 +913,77 @@ contract SetListingTest is AccessControlTest {
         hook.setListing(address(0));
 
         assertEq(address(hook.listing()), address(0), "Should allow setting listing to zero address");
+    }
+}
+
+contract SetVerifiedRouterTest is AccessControlTest {
+    address router1 = makeAddr("router1");
+    address router2 = makeAddr("router2");
+
+    function test_AllowManagerToSetRouterAsVerified() public {
+        assertFalse(hook.verifiedRouters(router1), "Router should not be verified initially");
+
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.VerifiedRouterUpdated(router1, true);
+        hook.setVerifiedRouter(router1, true);
+
+        assertTrue(hook.verifiedRouters(router1), "Router should be marked as verified");
+    }
+
+    function test_AllowManagerToSetRouterAsNotVerified() public {
+        // First set to verified
+        vm.prank(managerUser);
+        hook.setVerifiedRouter(router1, true);
+        assertTrue(hook.verifiedRouters(router1), "Router should be verified before unsetting");
+
+        // Now set to not verified
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.VerifiedRouterUpdated(router1, false);
+        hook.setVerifiedRouter(router1, false);
+
+        assertFalse(hook.verifiedRouters(router1), "Router should be marked as not verified");
+    }
+
+    function test_EmitsVerifiedRouterUpdatedEvent() public {
+        vm.prank(managerUser);
+        vm.expectEmit(true, true, true, true);
+        emit SuperDCAGauge.VerifiedRouterUpdated(router1, true);
+        hook.setVerifiedRouter(router1, true);
+    }
+
+    function test_RevertWhen_NonManagerSetsVerifiedRouter() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(ACCESS_CONTROL_UNAUTHORIZED_ACCOUNT_SELECTOR, nonManagerUser, hook.MANAGER_ROLE())
+        );
+        vm.prank(nonManagerUser);
+        hook.setVerifiedRouter(router1, true);
+    }
+
+    function test_RevertWhen_UnverifiedRouterAttemptsSwap() public {
+        // ---- Arrange ----
+        // Add liquidity to the pool so swap is possible
+        _modifyLiquidity(key, 10e18);
+
+        // Verify swap router is not verified
+        assertFalse(hook.verifiedRouters(address(swapRouter)), "Swap router should not be verified initially");
+
+        // Prepare swap parameters
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: true,
+            amountSpecified: -1e18,
+            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+        });
+
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+
+        // ---- Act & Assert ----
+        // Attempt swap through unverified router - should revert with SuperDCAGauge__UnauthorizedRouter
+        // Note: The error is wrapped in a Uniswap V4 WrappedError, so we cannot catch the specific selector
+        vm.expectRevert();
+        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
     }
 }
 

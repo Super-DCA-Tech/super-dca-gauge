@@ -36,6 +36,7 @@ abstract contract DeployGaugeBase is Script {
         address poolManager;
         uint256 mintRate;
         address positionManager;
+        address universalRouter;
     }
 
     struct PoolConfiguration {
@@ -104,6 +105,10 @@ abstract contract DeployGaugeBase is Script {
 
         _log("Deployed Hook:", address(hook));
 
+        // Add the Universal Router as a verified router
+        hook.setVerifiedRouter(hookConfig.universalRouter, true);
+        _log("Added Universal Router as a verified router");
+
         // Deploy staking (owned by deployer) and listing (admin = deployer, expected hook = deployed hook)
         staking = new SuperDCAStaking(DCA_TOKEN, hookConfig.mintRate, deployerAddress);
         listing = new SuperDCAListing(
@@ -125,7 +130,7 @@ abstract contract DeployGaugeBase is Script {
             currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
             currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 10,
+            tickSpacing: 60,
             hooks: IHooks(hook)
         });
 
@@ -133,7 +138,7 @@ abstract contract DeployGaugeBase is Script {
             currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
             currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 10,
+            tickSpacing: 60,
             hooks: IHooks(hook)
         });
 

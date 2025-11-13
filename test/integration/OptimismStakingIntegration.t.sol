@@ -6,6 +6,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {SuperDCAStaking} from "../../src/SuperDCAStaking.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice Integration tests for SuperDCAStaking on Optimism mainnet fork
 contract OptimismStakingIntegration is OptimismIntegrationBase {
@@ -20,7 +21,7 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
         uint256 nftId = _createFullRangePosition(key, amount0, amount1, address(this));
 
         IERC721(POSITION_MANAGER_V4).approve(address(listing), nftId);
-        listing.list(nftId, key);
+        listing.list(nftId);
 
         return key;
     }
@@ -320,17 +321,15 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
         assertEq(staking.mintRate(), newMintRate, "Mint rate should be updated");
     }
 
-    /// @notice Test mint rate update by gauge
-    function testFork_SetMintRate_ByGauge() public {
+    /// @notice Test mint rate update fails when called by gauge
+    function testFork_SetMintRate_RevertIfCalledByGauge() public {
         // ---- Arrange ----
         uint256 newMintRate = 2e18;
 
-        // ---- Act ----
+        // ---- Act & Assert ----
         vm.prank(address(gauge));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(gauge)));
         staking.setMintRate(newMintRate);
-
-        // ---- Assert ----
-        assertEq(staking.mintRate(), newMintRate, "Gauge should be able to set mint rate");
     }
 
     /// @notice Test mint rate update fails for unauthorized user
@@ -340,7 +339,7 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
 
         // ---- Act & Assert ----
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSignature("SuperDCAStaking__NotAuthorized()"));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         staking.setMintRate(newMintRate);
     }
 
