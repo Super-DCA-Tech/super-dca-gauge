@@ -21,7 +21,12 @@ contract DeployGaugeUnichain is DeployGaugeBase {
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER, universalRouter: UNIVERSAL_ROUTER});
+        return HookConfiguration({
+            poolManager: POOL_MANAGER,
+            mintRate: MINT_RATE,
+            positionManager: POSITION_MANAGER,
+            universalRouter: UNIVERSAL_ROUTER
+        });
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {

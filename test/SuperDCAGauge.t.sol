@@ -232,7 +232,7 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
             tickSpacing: 10, // Invalid - must be 60
             hooks: IHooks(hook)
         });
-        
+
         // Expect revert with InvalidTickSpacing error
         vm.expectRevert();
         manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
@@ -247,7 +247,7 @@ contract BeforeInitializeTest is SuperDCAGaugeTest {
             tickSpacing: 1, // Invalid - must be 60
             hooks: IHooks(hook)
         });
-        
+
         // Expect revert with InvalidTickSpacing error
         vm.expectRevert();
         manager.initialize(invalidTickSpacingKey, SQRT_PRICE_1_1);
@@ -971,9 +971,7 @@ contract SetVerifiedRouterTest is AccessControlTest {
 
         // Prepare swap parameters
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: true,
-            amountSpecified: -1e18,
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
         });
 
         PoolSwapTest.TestSettings memory testSettings =
