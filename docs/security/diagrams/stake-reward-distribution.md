@@ -7,7 +7,7 @@ sequenceDiagram
     participant Token as SuperDCAToken (owner=Hook)
     participant Dev as Developer
 
-    Note over Stake: Admin pre-configures mintRate & gauge address
+    Note over Stake: Owner pre-configures mintRate & gauge address
 
     LP->>Stake: stake(listedToken, amount)
     Stake->>Stake: update rewardIndex

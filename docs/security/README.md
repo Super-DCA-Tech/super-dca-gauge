@@ -21,7 +21,8 @@
 - **Who uses it:** Liquidity providers (LPs), DCA stakers, keeper candidates, swap traders, protocol developer/treasury admins, and listing operators. 
   - The hook is primary purpose is to offer Super DCA Pools that perform DCA 0% AMM fees. Super DCA Pool contracts will be set as "internal" addresses manually as they are deployed.
   - Additionally, all other users of these liquidity pools are charged a higher fee to make up for the 0% fee charged to the Super DCA pool contracts.
-- **How at a high level:** A listing contract holds full-range Uniswap v4 positions to whitelist partner tokens to earn DCA token rewards. Stakers deposit DCA into per-token buckets tracked by `SuperDCAStaking` to adjust the allocations of a fixed reward flow (10K DCA/month default). When LPs modify liquidity, the `SuperDCAGauge` hook accrues staking rewards, mints DCA via the token owner privilege, donates community rewards to the pool, and transfers the developer share. The hook also enforces dynamic swap fees (internal, keeper, external) and holds the keeper's DCA deposits. Anyone can become the keeper to receive a reduced fee if they stake the most DCA tokens to the `SuperDCAGauge` (i.e., king of the hill staking) Access is mediated via `AccessControl` (gauge) and `Ownable2Step` (staking/listing).
+  - Router integrations (e.g., aggregators) must be explicitly verified by managers before they can route swaps through the hook.
+- **How at a high level:** A listing contract holds full-range Uniswap v4 positions to whitelist partner tokens to earn DCA token rewards. Stakers deposit DCA into per-token buckets tracked by `SuperDCAStaking` to adjust the allocations of a fixed reward flow (10K DCA/month default). When LPs modify liquidity, the `SuperDCAGauge` hook accrues staking rewards, mints DCA via the token owner privilege, donates community rewards to the pool, and transfers the developer share. The hook also enforces dynamic swap fees (internal, keeper, external) and holds the keeper's DCA deposits. Anyone can become the keeper to receive a reduced fee if they stake the most DCA tokens to the `SuperDCAGauge` (i.e., king of the hill staking). Access is mediated via `AccessControl` (gauge) and `Ownable2Step` (staking/listing), and only manager-approved routers are allowed to execute swaps through the hook.
 - **Audit scope freeze:** Repository `super-dca-gauge` tagged `audit-freeze-20250922` on the `master` branch.
 
 ## Architecture Overview
@@ -29,7 +30,7 @@
 
 Contract | Responsibility | Key external funcs | Critical invariants
 -- | -- | -- | --
-`SuperDCAGauge` | Uniswap v4 hook distributing rewards, enforcing pool eligibility, dynamic fees, keeper deposits, and admin fee controls. | `setStaking`, `setListing`, `becomeKeeper`, `setFee`, `setInternalAddress`, `returnSuperDCATokenOwnership`, hook callbacks. | Only pools containing DCA and dynamic fee flag initialize; reward accrual cannot revert; donation splits stay 50/50 when mint succeeds; fee overrides respect role checks.
+`SuperDCAGauge` | Uniswap v4 hook distributing rewards, enforcing pool eligibility, dynamic fees, keeper deposits, and admin fee controls. | `setStaking`, `setListing`, `becomeKeeper`, `setFee`, `setInternalAddress`, `setVerifiedRouter`, `returnSuperDCATokenOwnership`, hook callbacks. | Only pools containing DCA and dynamic fee flag initialize; reward accrual cannot revert; donation splits stay 50/50 when mint succeeds; fee overrides respect role checks; swaps revert for routers that are not explicitly approved.
 `SuperDCAStaking` | Tracks per-token staking buckets and global reward index used by the gauge. Works like Curve's Gauge in how it distributes rewards to different liquidity pools. | `stake`, `unstake`, `accrueReward`, `setGauge`, `setMintRate`. | Reward index monotonic; staking totals updated atomically; only configured gauge can accrue rewards.
 `SuperDCAListing` | Custodies full-range Uniswap v4 NFT positions (NFPs), validates hook usage, and marks partner tokens listed. Allows the owner to collect fees earned by these permenantly locked NFPs | `list`, `setMinimumLiquidity`, `setHookAddress`, `collectFees`. | Listed token must pair with DCA, use expected hook, and meet liquidity threshold; duplicates prevented.
 `SuperDCAToken` | Minimal ERC20 + permit minted by owner (gauge during operations). Added in this repository for reference only. Previously deployed to `0xb1599cde32181f48f89683d3c5db5c5d2c7c93cc` on OP, Base, Unichain and Arbitrum. Some liquidity existing for this token in Uniswap V3 and V4 pools. | `mint`. | Ownership restricted to one account; decimals=18; mintable by the owner (gauge).
@@ -39,8 +40,8 @@ Contract | Responsibility | Key external funcs | Critical invariants
     - `_beforeInitialize` - verifies DCA is one of the tokens.
     - `_afterInitialize` - verifies pool uses dynamic fees.
     - `_beforeAddLiquidity`, `_beforeRemoveLiquidity` - performs reward math and DCA token mints.
-    - `_beforeSwap` - adjusts fees based on the msg sender, one of: internal, external, keeper.
-  - Gauge admin: `setStaking`, `setListing`, `updateManager`, `setFee`, `setInternalAddress`, `returnSuperDCATokenOwnership`, `becomeKeeper`, `getKeeperInfo`.
+    - `_beforeSwap` - rejects unverified routers and adjusts fees based on the ultimate msg sender (internal, keeper, external).
+  - Gauge admin: `setStaking`, `setListing`, `updateManager`, `setFee`, `setInternalAddress`, `setVerifiedRouter`, `returnSuperDCATokenOwnership`, `becomeKeeper`, `getKeeperInfo`.
   - Staking user actions: `stake`, `unstake`; gauge integration: `accrueReward`; admin: `setGauge`, `setMintRate`.
   - Listing ops: `list`, `setMinimumLiquidity`, `setHookAddress`, `collectFees`.
 
@@ -48,7 +49,7 @@ Contract | Responsibility | Key external funcs | Critical invariants
   1. Listing owner deposits full-range NFP → Listing contract marks partner token eligible for staking/gauge donations.
   2. Staker transfers DCA → Staking contract updates bucket share and global reward index.
   3. LP modifies liquidity → PoolManager triggers gauge hook → gauge accrues reward from staking and mints DCA split between pool donation and developer.
-  4. Traders use liquidity in the pools → `_beforeSwap` hook adjusts fees dynamically, no fee for internal, low fee for keeper, high fee for external.
+  4. Traders use liquidity in the pools → `_beforeSwap` hook rejects unverified routers and then adjusts fees dynamically (no fee for internal, low fee for keeper, high fee for external).
   5. Keeper candidate deposits DCA via `becomeKeeper` → gauge enforces higher deposit and refunds prior keeper, keeper gets lower fees when performing swaps.
   6. Admin updates parameters (e.g., mintRate, fees, minLiquidity) under role controls, given wide latitude to make parameter adjustments. 
 
@@ -58,9 +59,9 @@ Contract | Responsibility | Key external funcs | Critical invariants
 Role | Capabilities
 -- | --
 Default admin (developer multisig) | Holds `DEFAULT_ADMIN_ROLE` on gauge, can set staking/listing modules, rotate managers, reclaim token ownership, pause integrations off-chain via config changes.
-Gauge manager | Accounts with `MANAGER_ROLE` on gauge can adjust dynamic fees and mark internal addresses.
+Gauge manager | Accounts with `MANAGER_ROLE` on gauge can adjust dynamic fees, mark internal addresses, and manage the allowlist of verified routers permitted to route swaps.
 Listing owner | `Ownable2Step` owner can set expected hook, min liquidity, and collect fees for listed positions.
-Staking owner | `Ownable2Step` owner can set authorized gauge and adjust mint rate; gauge can also change mint rate.
+Staking owner | `Ownable2Step` owner can set authorized gauge and adjust mint rate.
 Liquidity provider | Adds/removes liquidity, triggering donations and reward minting via hook.
 Staker | Deposits DCA into staking buckets to earn proportional rewards.
 External Trader | Swaps through Uniswap V4 pools with the `SuperDCAGauge` hook; receive the highest fee for using the liquidity for external purposes.
@@ -68,12 +69,12 @@ Internal Trader | Designed to be Super DCA Pool contracts; receive 0% fee by def
 Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held by gauge until replaced.
 
 ### Access control design
-  - Gauge uses OpenZeppelin `AccessControl` with `DEFAULT_ADMIN_ROLE` and `MANAGER_ROLE`. Only the staking contract address set by admin can be called for reward accrual. Keeper deposits are open, but fee edits and internal address management require manager role.
-  - Staking and listing rely on `Ownable2Step`; owner must call `acceptOwnership`. Only owner (and gauge for mintRate) may update parameters. Limits on parameter changes are liberal to allow maximum flexibilty.
+  - Gauge uses OpenZeppelin `AccessControl` with `DEFAULT_ADMIN_ROLE` and `MANAGER_ROLE`. Only the staking contract address set by admin can be called for reward accrual. Keeper deposits are open, but fee edits, internal address management, and router verification require manager role; swaps from unverified routers revert pre-fee evaluation.
+  - Staking and listing rely on `Ownable2Step`; owner must call `acceptOwnership`. Only owner may update staking parameters (mint rate, gauge address). Limits on parameter changes are liberal to allow maximum flexibilty.
   - DCA Token ownership typically resides with gauge so it can mint; admin can reclaim via `returnSuperDCATokenOwnership`.
 
 ### Emergency controls
-  - No explicit pause. Mitigations rely on revoking staking/listing addresses, resetting mintRate to zero, or reclaiming token ownership to halt minting. Keeper deposits can be reclaimed by surpassing deposit threshold (up only system). No timelocks present, so admin actions execute immediately.
+  - No explicit pause. Mitigations rely on revoking staking/listing addresses, resetting mintRate to zero, reclaiming token ownership to halt minting, or removing routers from the verified list to cut off swap order flow. Keeper deposits can be reclaimed by surpassing deposit threshold (up only system). No timelocks present, so admin actions execute immediately.
 
 ## User Flows (Primary Workflows)
 ### Flow 1: Token listing onboarding
@@ -81,11 +82,11 @@ Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held b
 - **Preconditions:** Listing contract deployed with expected hook address; `list` caller holds full-range NFP minted with Super DCA token on one side and meets `minLiquidity`; approvals granted for NFT transfer.
 - **Happy path steps:**
   1. Owner mints or acquires full-range NFP from Uniswap PositionManager.
-  2. Owner calls `list(nftId, poolKey)` on `SuperDCAListing`.
-  3. Contract pulls actual pool metadata, checks hook equals configured gauge, validates full-range ticks and minimum DCA liquidity.
+  2. Owner calls `list(nftId)` on `SuperDCAListing`.
+  3. Contract pulls actual pool metadata on-chain, checks hook equals configured gauge, validates full-range ticks and minimum DCA liquidity.
   4. Contract marks partner token as listed, records NFP → token mapping, and transfers NFT custody to itself.
   5. Pair token from the NFP is now eligible to earn DCA token rewards, proportional to the amount of DCA staked to it on the staking system.
-- **Alternates / edge cases:** Reverts if hook mismatch, liquidity below threshold, token already listed, or pool key mismatched; zero `nftId` or zero addresses revert; only owner can adjust hook/min liquidity. No automatic delisting; liquidity becomes permanently locked in the listing contract.
+- **Alternates / edge cases:** Reverts if hook mismatch, liquidity below threshold, or token already listed; zero `nftId` or zero addresses revert; only owner can adjust hook/min liquidity. No automatic delisting; liquidity becomes permanently locked in the listing contract.
 - **On-chain ↔ off-chain interactions:** Off-chain process to prepare NFP; all validations on-chain using Uniswap managers; Owner can collect fees on this position using `collectFees`.
 - **Linked diagram:** [Token listing onboarding](./diagrams/token-listing.md)
 - **Linked tests:** `test/SuperDCAListing.t.sol` 
@@ -106,19 +107,19 @@ Keeper | Highest-deposit account receiving reduced swap fee tier; deposit held b
 
 ### Flow 3: Keeper rotation and dynamic fee enforcement
 - **User story:** As a keeper candidate, I want priority to execute arbitrage trades using the Super DCA Network's liquidity so I can make revenue. 
-- **Preconditions:** Gauge deployed with DCA ownership and manager-set fees; candidate holds DCA tokens and approval for gauge; optional internal address list managed by managers.
+- **Preconditions:** Gauge deployed with DCA ownership and manager-set fees; candidate holds DCA tokens and approval for gauge; managers have configured internal addresses and verified routers allowed to route swaps.
 - **Happy path steps:**
   1. Candidate approves DCA and calls `becomeKeeper(amount)`; gauge ensures `amount > keeperDeposit`, transfers deposit in, and refunds prior keeper if present.
   2. Gauge updates `keeper` and `keeperDeposit` state and emits `KeeperChanged`.
-  3. When swaps occur, hook queries `IMsgSender(sender).msgSender()`; if address is marked internal, 0% fee; else if matches keeper, apply `keeperFee`; otherwise apply `externalFee` with override flag.
-- **Alternates / edge cases:** Calls revert on zero amount or insufficient deposit; same keeper can increase deposit; manager role can retune fees or mark addresses; losing keeper obtains refund automatically; swapper classification depends on proxy contract implementing `IMsgSender`.
+  3. When swaps occur, hook first requires the router to be on the verified list, then queries `IMsgSender(sender).msgSender()`; if address is marked internal, 0% fee; else if matches keeper, apply `keeperFee`; otherwise apply `externalFee` with override flag.
+- **Alternates / edge cases:** Calls revert on zero amount or insufficient deposit; same keeper can increase deposit; manager role can retune fees, mark addresses, or delist routers; losing keeper obtains refund automatically; swaps revert outright if the router is not verified or its proxy misreports `msgSender`.
 - **On-chain ↔ off-chain interactions:** Keeper deposit handled on-chain; off-chain monitoring needed to top up deposit or detect replacements.
 - **Linked diagram:** [Keeper rotation and dynamic fee enforcement](./diagrams/keeper-dynamic-fee.md)
 - **Linked tests:** Keeper deposit, refund, and fee configuration verified in `BecomeKeeperTest` suite and manager access tests in `test/SuperDCAGauge.t.sol`.
 
 ## State, Invariants & Properties
 ### State variables that matter
-  - Gauge: `keeper`, `keeperDeposit`, `internalFee`, `externalFee`, `keeperFee`, `isInternalAddress`, references to staking/listing modules.
+  - Gauge: `keeper`, `keeperDeposit`, `internalFee`, `externalFee`, `keeperFee`, `isInternalAddress`, `verifiedRouters`, references to staking/listing modules.
   - Staking: `mintRate`, `rewardIndex`, `lastMinted`, `totalStakedAmount`, per-token `TokenRewardInfo` (staked amount, last index).
   - Listing: `minLiquidity`, `expectedHooks`, `isTokenListed`, `tokenOfNfp`.
 
@@ -128,7 +129,7 @@ Invariant | Description | Enforcement / Tests
 -- | -- | --
 Pool eligibility | Only pools with Super DCA token and dynamic fee flag may initialize the hook. | `_beforeInitialize` / `_afterInitialize`; `test_beforeInitialize_revert_wrongToken`, `test_RevertWhen_InitializingWithStaticFee`.
 Accrual monotonicity | `rewardIndex` increases with elapsed time when stake > 0; totals update on stake/unstake. | `_updateRewardIndex`; `testFuzz_UpdatesState`, `test_reward_calculation`.
-Authorization | Only owner/manager/gauge may mutate sensitive parameters; unauthorized calls revert. | `AccessControl` & `Ownable2Step`; `test_RevertWhen_NonManagerSetsInternalFee/ExternalFee/KeeperFee`; `testFuzz_RevertIf_CallerIsNotOwnerOrGauge`.
+Authorization | Only owner/manager may mutate sensitive parameters; unauthorized calls revert. | `AccessControl` & `Ownable2Step`; `test_RevertWhen_NonManagerSetsInternalFee/ExternalFee/KeeperFee`; `testFuzz_RevertIf_CallerIsNotOwnerOrGauge`.
 Reward split | When donation occurs, minted rewards split 50/50 between developer and pool (±1 wei rounding). | `_handleDistributionAndSettlement`; `test_distribution_on_addLiquidity`, `test_distribution_on_removeLiquidity`.
 Keeper supremacy | New keeper must deposit strictly more DCA; previous deposit refunded. | `becomeKeeper`; `test_becomeKeeper_replaceKeeper`, `test_becomeKeeper_revert_insufficientDeposit`.
 Mint failure tolerance | Reward accrual proceeds even if token minting fails. | `_tryMint`; `test_whenMintFails_onAddLiquidity`, `test_whenMintFails_onRemoveLiquidity`.
@@ -147,7 +148,7 @@ None; system does not consume price feeds.
   - LP-triggered rewards rely on sufficient LP adds and removes; long idle periods delay minting but accrue in index.
   - Donations require pool liquidity; empty pools route rewards entirely to developer.
   - `beforeSwap` executes every swap; gas overhead increases with dynamic fee logic and external. Logic here kept simple as possible to avoid adding overhead for swaps.
-  - `IMsgSender` call, assuming router implements interface. Verified in integration tests.
+  - `IMsgSender` call, assuming router implements interface; managers are expected to vet each router they verify. Verified in integration tests.
   - Keeper deposit is a up-only system; king of the hill won't be able to withdraw their deposit. Replacing the keeper is the only way to recover the keeper deposit.
 
 ## Upgradeability & Initialization
@@ -168,13 +169,14 @@ Manual process—revoke gauge role or transfer token ownership before deploying 
 
 Parameter | Contract | Units / Range | Default | Who can change | Notes
 -- | -- | -- | -- | -- | --
-`mintRate` | Staking | DCA per second; expect ≤ token emission cap | Constructor arg | Owner or gauge | Setting to 0 halts new emissions.
+`mintRate` | Staking | DCA per second; expect ≤ token emission cap | Constructor arg | Owner | Setting to 0 halts new emissions.
 `staking` address | Gauge | Contract address | unset | Gauge admin | Must be set before liquidity events or accrual reverts.
 `listing` address | Gauge | Contract address | unset | Gauge admin | If unset, `isTokenListed` returns false, blocking staking.
 `internalFee` | Gauge | basis points * 100 | 0 | Manager role | Applied to allowlisted traders (i.e. Super DCA contracts).
 `externalFee` | Gauge | basis points * 100 | 5000 (0.50%) | Manager role | Default fallback fee for external traders (e.g., arbitrage/MEV traders).
 `keeperFee` | Gauge | basis points * 100 | 1000 (0.10%) | Manager role | Used when swapper == keeper.
 `isInternalAddress` | Gauge | bool map | false | Manager role | Grants 0% fee tier.
+`verifiedRouters` | Gauge | bool map | false | Manager role | Only verified routers can call into the hook; others revert.
 `expectedHooks` | Listing | address | constructor | Listing owner | Must match gauge hook flags.
 `minLiquidity` | Listing | DCA wei | 1000e18 | Listing owner | Adjust to control listing quality.
 
@@ -248,7 +250,7 @@ No dedicated coverage artifacts committed; fuzz tests very limited in staking su
 - Donation/reward accounting where rounding is observed, possibly due to mechanics inside Uniswap V4.
 - Gauge lacks explicit pause or timelock; admin compromises allow immediate fee or staking address changes. See `docs/GOV_SPEC.md` for planned governance implementation to address this. 
 - `SuperDCAStaking.stake` relies on `gauge.isTokenListed`; if `listing` not set or listing contract compromised, staking eligibility checks may fail-open/closed accordingly.
-- Dynamic fee logic trusts external `IMsgSender` implementations; malicious routers could spoof trader identity to obtain 0% fees.
+- Dynamic fee logic trusts external `IMsgSender` implementations on manager-approved routers; incorrect integrations could still spoof trader identity, so managers must curate and audit every router they verify.
 - Concerned with the open permission of `becomeKeeper`; anyone can become a keeper and receive the lowest fee tier.
 - Concerned about the ability to list any DCA/TOK pair permissionlessly; worried about exotic tokens potentially causing issues. 
 - The gauge contract holding the Keeper deposit and also distributing DCA token rewards; could the rewards be stolen by the keeper or could the keeper deposit be stolen by the gauge contract?
@@ -321,8 +323,7 @@ Contract Specification: SuperDCAStaking
 │   └──  Revert If: Caller Is Not Owner
 ├── setMintRate
 │   ├──  Updates Mint Rate When Called By Owner
-│   ├──  Updates Mint Rate When Called By Gauge
-│   └──  Revert If: Caller Is Not Owner Or Gauge
+│   └──  Revert If: Caller Is Not Owner
 ├── _updateRewardIndex
 ├── stake
 │   ├──  Updates State
@@ -369,6 +370,7 @@ Contract Specification: SuperDCAGauge
 ├── updateManager
 ├── setFee
 ├── setInternalAddress
+├── setVerifiedRouter
 ├── returnSuperDCATokenOwnership
 └── _tryMint
 ```
