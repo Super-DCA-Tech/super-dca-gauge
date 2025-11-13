@@ -15,14 +15,19 @@ contract DeployGaugeBaseOptimism is DeployGaugeBase {
     // Pool constants
     address public constant ETH = address(0); // Native ETH uses address(0)
     address public constant USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
-    address public constant WBTC = 0x68f180fcCe6836688e9084f035309E29Bf0A2095; 
+    address public constant WBTC = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
 
     function run() public override returns (DeployedContracts memory) {
         return super.run();
     }
 
     function getHookConfiguration() public pure override returns (HookConfiguration memory) {
-        return HookConfiguration({poolManager: POOL_MANAGER, mintRate: MINT_RATE, positionManager: POSITION_MANAGER, universalRouter: UNIVERSAL_ROUTER});
+        return HookConfiguration({
+            poolManager: POOL_MANAGER,
+            mintRate: MINT_RATE,
+            positionManager: POSITION_MANAGER,
+            universalRouter: UNIVERSAL_ROUTER
+        });
     }
 
     function getPoolConfiguration() public pure override returns (PoolConfiguration memory) {

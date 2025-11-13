@@ -44,7 +44,7 @@ contract TransferOwnership is Script {
         console2.log("Transferring ownership to new owner...");
         dcaToken.transferOwnership(GAUGE_ADDRESS);
         console2.log("Ownership transfer called.");
-        
+
         // Verify we can recover ownership
         console2.log("Recovering ownership...");
         gauge.returnSuperDCATokenOwnership();

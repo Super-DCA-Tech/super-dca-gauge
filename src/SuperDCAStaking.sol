@@ -239,10 +239,10 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
 
         // Update token bucket accounting and user stakes
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
-        
+
         // Accumulate pending rewards before updating lastRewardIndex
         _accumulatePendingRewards(info);
-        
+
         info.stakedAmount += amount;
         info.lastRewardIndex = rewardIndex;
 
@@ -332,10 +332,10 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
      */
     function previewPending(address token) external view override returns (uint256) {
         TokenRewardInfo storage info = tokenRewardInfoOf[token];
-        
+
         // Start with accumulated pending rewards
         uint256 pending = info.pendingReward;
-        
+
         // Add rewards for current period if there are staked tokens and total staked amount
         if (info.stakedAmount > 0 && totalStakedAmount > 0) {
             uint256 currentIndex = rewardIndex;
@@ -346,7 +346,7 @@ contract SuperDCAStaking is ISuperDCAStaking, Ownable2Step {
             }
             pending += Math.mulDiv(info.stakedAmount, currentIndex - info.lastRewardIndex, 1e18);
         }
-        
+
         return pending;
     }
 
