@@ -118,7 +118,6 @@ contract SetMintRate is SuperDCAStakingTest {
         assertEq(staking.mintRate(), _newRate);
     }
 
-
     function testFuzz_RevertIf_CallerIsNotOwner(address _caller, uint256 _newRate) public {
         vm.assume(_caller != admin);
         vm.prank(_caller);
@@ -228,26 +227,26 @@ contract Stake is SuperDCAStakingTest {
     function test_FirstStakerCannotHarvestBankedTime() public {
         // Record the initial deployment time
         uint256 deployTime = staking.lastMinted();
-        
+
         // Simulate time passing after deployment (e.g., 1000 seconds with no stakes)
         uint256 emptyPeriod = 1000;
         vm.warp(deployTime + emptyPeriod);
-        
+
         // First user stakes tokens (simulating flash loan borrowing)
         vm.prank(user);
         staking.stake(tokenA, 100e18);
-        
+
         // Verify that lastMinted was updated during stake, not staying at deployTime
         assertEq(staking.lastMinted(), deployTime + emptyPeriod, "lastMinted should be updated to current time");
-        
+
         // Immediately trigger reward accrual (simulating pool swap in the attack)
         vm.prank(gauge);
         uint256 accrued = staking.accrueReward(tokenA);
-        
+
         // The accrued rewards should be 0 or very minimal, NOT based on the empty period
         // Since no time passed between stake and accrual, rewards should be 0
         assertEq(accrued, 0, "No rewards should accrue from empty period before first stake");
-        
+
         // Verify the user cannot harvest rewards from the empty period
         (uint256 stakedAmount, uint256 lastRewardIndex) = staking.tokenRewardInfos(tokenA);
         assertEq(stakedAmount, 100e18);
@@ -494,22 +493,22 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         // Set up initial stake
         vm.prank(user);
         staking.stake(tokenA, 100e18);
-        
+
         // Let rewards accrue for 50 seconds
         uint256 start = staking.lastMinted();
         vm.warp(start + 50);
-        
+
         // Stake more (should accumulate pending rewards from first period)
         vm.prank(user);
         staking.stake(tokenA, 50e18);
-        
+
         // Let more rewards accrue for another 50 seconds with 150e18 total staked
         vm.warp(start + 100);
-        
+
         // Unstake some (should accumulate pending rewards again)
         vm.prank(user);
         staking.unstake(tokenA, 25e18);
-        
+
         // Accrue should pay all accumulated rewards
         // Period 1: 100e18 staked, 50 seconds = 5000 rewards
         // Period 2: 150e18 staked, 50 seconds = 5000 rewards minted -> index increases by (5000 * 1e18 / 150e18) = 33
@@ -525,20 +524,20 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         vm.prank(user);
         staking.stake(tokenA, 100e18);
         vm.warp(staking.lastMinted() + 50);
-        
+
         // First accrue
         vm.prank(gauge);
         uint256 firstAccrue = staking.accrueReward(tokenA);
         assertGt(firstAccrue, 0, "first accrue should have rewards");
-        
+
         // Immediate second accrue should return 0
         vm.prank(gauge);
         uint256 secondAccrue = staking.accrueReward(tokenA);
         assertEq(secondAccrue, 0, "second immediate accrue should return 0");
-        
+
         // Let more time pass
         vm.warp(block.timestamp + 50);
-        
+
         // Third accrue should have new rewards
         vm.prank(gauge);
         uint256 thirdAccrue = staking.accrueReward(tokenA);
@@ -550,15 +549,15 @@ contract TokenRewardInfos is SuperDCAStakingTest {
         vm.prank(user);
         staking.stake(tokenA, 100e18);
         vm.warp(staking.lastMinted() + 50);
-        
+
         // Preview should show pending rewards
         uint256 preview1 = staking.previewPending(tokenA);
         assertGt(preview1, 0, "preview should show pending rewards");
-        
+
         // Stake more (accumulates pending rewards)
         vm.prank(user);
         staking.stake(tokenA, 50e18);
-        
+
         // Preview should still show the accumulated rewards
         uint256 preview2 = staking.previewPending(tokenA);
         assertGe(preview2, preview1, "preview should include accumulated rewards");

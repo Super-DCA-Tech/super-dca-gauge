@@ -322,7 +322,7 @@ contract OptimismStakingIntegration is OptimismIntegrationBase {
     }
 
     /// @notice Test mint rate update fails when called by gauge
-    function testFork_SetMintRate_RevertIfCalledByGauge() public {
+    function testFork_RevertIf_SetMintRateCalledByGauge() public {
         // ---- Arrange ----
         uint256 newMintRate = 2e18;
 

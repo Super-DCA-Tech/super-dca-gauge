@@ -65,7 +65,6 @@ contract SuperDCAGauge is BaseHook, AccessControl {
         INTERNAL, // Fee for whitelisted internal addresses (typically 0%)
         EXTERNAL, // Fee for regular external users (typically 0.50%)
         KEEPER // Fee for the current keeper (typically 0.10%)
-
     }
 
     /**
@@ -294,7 +293,12 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */
-    function _beforeInitialize(address, /* sender */ PoolKey calldata key, uint160 /* sqrtPriceX96 */ )
+    function _beforeInitialize(
+        address,
+        /* sender */
+        PoolKey calldata key,
+        uint160 /* sqrtPriceX96 */
+    )
         internal
         view
         override
@@ -316,7 +320,14 @@ contract SuperDCAGauge is BaseHook, AccessControl {
      * @param key The pool key containing currency pair and fee information.
      * @return The function selector to confirm successful validation.
      */
-    function _afterInitialize(address, /* sender */ PoolKey calldata key, uint160, /* sqrtPriceX96 */ int24 /* tick */ )
+    function _afterInitialize(
+        address,
+        /* sender */
+        PoolKey calldata key,
+        uint160,
+        /* sqrtPriceX96 */
+        int24 /* tick */
+    )
         internal
         pure
         override

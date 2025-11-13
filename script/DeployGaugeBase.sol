@@ -87,8 +87,9 @@ abstract contract DeployGaugeBase is Script {
         );
 
         // Mine the salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs =
-            abi.encode(hookConfig.poolManager, DCA_TOKEN, deployerAddress, IPositionManager(hookConfig.positionManager));
+        bytes memory constructorArgs = abi.encode(
+            hookConfig.poolManager, DCA_TOKEN, deployerAddress, IPositionManager(hookConfig.positionManager)
+        );
 
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(SuperDCAGauge).creationCode, constructorArgs);
@@ -127,16 +128,24 @@ abstract contract DeployGaugeBase is Script {
 
         // Create pool keys for both USDC/DCA and ETH/DCA pools
         PoolKey memory usdcPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token1),
-            currency1: address(DCA_TOKEN) < poolConfig.token1 ? Currency.wrap(poolConfig.token1) : Currency.wrap(DCA_TOKEN),
+            currency0: address(DCA_TOKEN) < poolConfig.token1
+                ? Currency.wrap(DCA_TOKEN)
+                : Currency.wrap(poolConfig.token1),
+            currency1: address(DCA_TOKEN) < poolConfig.token1
+                ? Currency.wrap(poolConfig.token1)
+                : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
             hooks: IHooks(hook)
         });
 
         PoolKey memory ethPoolKey = PoolKey({
-            currency0: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(DCA_TOKEN) : Currency.wrap(poolConfig.token0),
-            currency1: address(DCA_TOKEN) < poolConfig.token0 ? Currency.wrap(poolConfig.token0) : Currency.wrap(DCA_TOKEN),
+            currency0: address(DCA_TOKEN) < poolConfig.token0
+                ? Currency.wrap(DCA_TOKEN)
+                : Currency.wrap(poolConfig.token0),
+            currency1: address(DCA_TOKEN) < poolConfig.token0
+                ? Currency.wrap(poolConfig.token0)
+                : Currency.wrap(DCA_TOKEN),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
             hooks: IHooks(hook)
