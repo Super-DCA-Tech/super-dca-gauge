@@ -23,8 +23,12 @@ sequenceDiagram
     Note over Swapper,Pool: Later swap request routed through PoolManager
     Swapper->>Pool: swap(params)
     Pool->>Gauge: beforeSwap(sender)
-    Gauge->>Proxy: msgSender()
-    Proxy-->>Gauge: swapper address
+    alt sender verified
+        Gauge->>Proxy: msgSender()
+        Proxy-->>Gauge: swapper address
+    else sender not verified
+        Gauge-->>Pool: revert SuperDCAGauge__UnauthorizedRouter
+    end
     alt swapper marked internal
         Gauge-->>Pool: return internalFee | override flag
     else swapper == keeper

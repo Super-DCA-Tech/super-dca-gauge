@@ -6,7 +6,7 @@ sequenceDiagram
     participant Hook as SuperDCAGauge
 
     L->>PM: Mint full-range NFP<br/>token0=DCA, token1=Asset
-    L->>LP: list(nftId, poolKey)
+    L->>LP: list(nftId)
     LP->>PM: getPoolAndPositionInfo(nftId)
     LP->>PM: getPositionLiquidity(nftId)
     PM-->>LP: poolKey, liquidity, ticks
