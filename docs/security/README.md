@@ -22,8 +22,9 @@
   - The hook is primary purpose is to offer Super DCA Pools that perform DCA 0% AMM fees. Super DCA Pool contracts will be set as "internal" addresses manually as they are deployed.
   - Additionally, all other users of these liquidity pools are charged a higher fee to make up for the 0% fee charged to the Super DCA pool contracts.
   - Router integrations (e.g., aggregators) must be explicitly verified by managers before they can route swaps through the hook.
-- **How at a high level:** A listing contract holds full-range Uniswap v4 positions to whitelist partner tokens to earn DCA token rewards. Stakers deposit DCA into per-token buckets tracked by `SuperDCAStaking` to adjust the allocations of a fixed reward flow (10K DCA/month default). When LPs modify liquidity, the `SuperDCAGauge` hook accrues staking rewards, mints DCA via the token owner privilege, donates community rewards to the pool, and transfers the developer share. The hook also enforces dynamic swap fees (internal, keeper, external) and holds the keeper's DCA deposits. Anyone can become the keeper to receive a reduced fee if they stake the most DCA tokens to the `SuperDCAGauge` (i.e., king of the hill staking). Access is mediated via `AccessControl` (gauge) and `Ownable2Step` (staking/listing), and only manager-approved routers are allowed to execute swaps through the hook.
+- **How at a high level:** A listing contract holds full-range Uniswap v4 positions to whitelist partner tokens to earn DCA token rewards. Stakers deposit DCA into per-token buckets tracked by `SuperDCAStaking` to adjust the allocations of a fixed reward flow (10K DCA/month default). When LPs modify liquidity, the `SuperDCAGauge` hook accrues rewards, mints DCA via the token owner privilege, donates community rewards to the pool, and transfers the developer share. The hook also enforces dynamic swap fees (internal, keeper, external) and holds the keeper's DCA deposits. Anyone can become the keeper to receive a reduced fee if they stake the most DCA tokens to the `SuperDCAGauge` (i.e., king of the hill staking). Access is mediated via `AccessControl` (gauge) and `Ownable2Step` (staking/listing), and only manager-approved routers are allowed to execute swaps through the hook.
 - **Audit scope freeze:** Repository `super-dca-gauge` tagged `audit-freeze-20250922` on the `master` branch.
+- **Sherlock Audit Contest report:** [Full PDF report available in `docs/security/audits`](./audits)
 
 ## Architecture Overview
 ### Module map
@@ -220,7 +221,7 @@ Build Timestamp: 2025-04-30T13:50:49.971365000Z (1746021049)
   git clone https://github.com/Super-DCA-Tech/super-dca-gauge.git
   cd super-dca-gauge
   git checkout
-  git tag -l 'audit-freeze-20250922'
+  git tag -l 'master'
 
   # 3) (Optional) copy environment file for RPC endpoints
   cp .env.example .env  # populate OPTIMISM_RPC_URL etc. when running scripts
@@ -293,16 +294,18 @@ Contract Specification: SuperDCAListing
 │   ├──  Revert When: Partial Range: Upper Wrong
 │   ├──  Revert When: Liquidity Below Minimum
 │   ├──  Revert When: Token Already Listed
-│   ├──  Revert When: Mismatched Pool Key Provided
+│   ├──  Revert When: Caller Is Not Owner
 │   ├──  Registers Token And Transfers Nfp: When: Dca Token Is Currency0
 │   └──  Registers Token And Transfers Nfp: When: Dca Token Is Currency1
 ├── _getAmountsForKey
 └── collectFees
     ├──  Collect Fees: Increases Recipient Balances: When: Called By Admin
     ├──  Emits Fees Collected: When: Called By Admin
-    ├──  Revert When: Collect Fees Called By Non Admin
+    ├──  Revert When: Collect Fees Called By Non Owner
     ├──  Revert When: Collect Fees With Zero Nfp Id
-    └──  Revert When: Collect Fees With Zero Recipient
+    ├──  Revert When: Collect Fees With Zero Recipient
+    ├──  Collect Fees: Works With Native E T H As Token0
+    └──  Emits Fees Collected: With Native E T H
 
 Contract Specification: SuperDCAToken
 ├── constructor
@@ -323,10 +326,14 @@ Contract Specification: SuperDCAStaking
 │   └──  Revert If: Caller Is Not Owner
 ├── setMintRate
 │   ├──  Updates Mint Rate When Called By Owner
-│   └──  Revert If: Caller Is Not Owner
+│   ├──  Revert If: Caller Is Not Owner
+│   ├──  Applies Old Rate To Elapsed Time Before Rate Change
+│   └──  Rewards Use Correct Rate For Each Time Period
 ├── _updateRewardIndex
+├── _accumulatePendingRewards
 ├── stake
 │   ├──  Updates State
+│   ├──  First Staker Cannot Harvest Banked Time
 │   ├──  Emits Staked Event
 │   └──  Revert If: Zero Amount Stake
 ├── unstake
@@ -351,7 +358,12 @@ Contract Specification: SuperDCAStaking
 │   └──  Returns Empty When: No Stake
 └── tokenRewardInfos
     ├──  Returns Zero Struct Initially
-    └──  Returns Updated Struct After Stake
+    ├──  Returns Updated Struct After Stake
+    ├──  Po C: Unstake Before Accrue: Preserves Rewards
+    ├──  Stake Before Accrue: Preserves Rewards
+    ├──  Multiple Stake Unstake Before Accrue: Preserves Rewards
+    ├──  Accrue Multiple Times: Resets Pending Rewards
+    └──  Preview Pending: Includes Accumulated Rewards
 
 Contract Specification: SuperDCAGauge
 ├── constructor
