@@ -493,23 +493,6 @@ contract List is SuperDCAListingTest {
         vm.stopPrank();
     }
 
-    function test_RevertWhen_CallerIsNotOwner() public {
-        // Create a new address that is not the owner
-        address unauthorizedCaller = address(0x9999);
-        
-        // Mint a full-range NFP owned by the unauthorized caller
-        uint256 nfpId = _mintFullRange(key, 2_000e18, 2_000e18, unauthorizedCaller);
-        
-        // Approve the listing contract to transfer the NFP and attempt to list
-        vm.startPrank(unauthorizedCaller);
-        IERC721(address(positionManagerV4)).approve(address(listing), nfpId);
-        
-        // Attempt to list without being the owner
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, unauthorizedCaller));
-        listing.list(nfpId, key);
-        vm.stopPrank();
-    }
-
     function test_RegistersTokenAndTransfersNfp_When_DcaTokenIsCurrency0() public {
         // Ensure currency0 is the DCA token by deploying ALT at an address greater than DCA
         address altAddr = _addressGreaterThan(address(dcaToken));

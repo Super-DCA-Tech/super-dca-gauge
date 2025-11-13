@@ -233,16 +233,26 @@ contract OptimismIntegrationBase is Test {
 
         poolId = key.toId();
 
-        // Initialize the pool
-        poolManager.initialize(key, sqrtPriceX96);
+        // Check if pool is already initialized by checking if sqrtPriceX96 is non-zero
+        (uint160 existingSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        // Only initialize if the pool doesn't exist yet
+        if (existingSqrtPriceX96 == 0) {
+            poolManager.initialize(key, sqrtPriceX96);
+        }
     }
 
     /// @notice Helper to create a test pool from an existing PoolKey
     function _createTestPoolFromKey(PoolKey memory key, uint160 sqrtPriceX96) internal returns (PoolId poolId) {
         poolId = key.toId();
 
-        // Initialize the pool
-        poolManager.initialize(key, sqrtPriceX96);
+        // Check if pool is already initialized by checking if sqrtPriceX96 is non-zero
+        (uint160 existingSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        // Only initialize if the pool doesn't exist yet
+        if (existingSqrtPriceX96 == 0) {
+            poolManager.initialize(key, sqrtPriceX96);
+        }
     }
 
     /// @notice Helper to get an already initialized pool key without initializing it

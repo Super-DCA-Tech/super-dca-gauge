@@ -76,7 +76,7 @@ contract ListNFT is Script {
 
         // List the NFT with the pool key
         console2.log("Listing NFT...");
-        listing.list(nftId, key);
+        listing.list(nftId);
         console2.log("NFT listed successfully.");
 
         // Verify the listing

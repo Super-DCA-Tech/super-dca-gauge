@@ -26,7 +26,7 @@ abstract contract DeployGaugeBase is Script {
     // bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     // Superchain ERC20 token is the same address on all Superchain's 
-    address public constant DCA_TOKEN = 0x26AE4b2b875Ec1DC6e4FDc3e9C74E344c3b43A54; // Sepolia DCA Token // 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc;
+    address public constant DCA_TOKEN = 0xb1599CDE32181f48f89683d3C5Db5C5D2C7C93cc; 
 
     // Initial sqrtPriceX96 for the pools
     // Note: Read these from the existing DCA-USDC, DCA-WETH, DCA-WBTC pools on Optimism Stateview Slot0
